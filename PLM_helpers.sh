@@ -169,6 +169,9 @@ _PLM_render_hints() {
 "  ${k}${PLM_KEY_DELETE}${o}  drop the entry (file kept)" \
 "  ${k}${PLM_KEY_TAGS}${o}  edit tags" \
 "  ${k}${PLM_KEY_RESELECT}${o}  reselect the playlist" \
+"  ${k}${PLM_KEY_NEXT}${o}   next track" \
+"  ${k}${PLM_KEY_PREV}${o}   previous track" \
+"  ${k}${PLM_KEY_PAUSE}${o} pause / unpause" \
 "  ${k}${PLM_KEY_QUIT}${o}  quit PLM + qmmp" \
 "  ${k}esc${o}     reopen on this track" \
 "  ${k}${PLM_KEY_HINTS}${o}   close this panel" \

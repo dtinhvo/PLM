@@ -58,6 +58,9 @@ export PLM_KEY_DELETE="ctrl-d"
 export PLM_KEY_TAGS="ctrl-e"
 export PLM_KEY_RESELECT="ctrl-r"
 export PLM_KEY_QUIT="ctrl-q"
+export PLM_KEY_NEXT="alt-n"                        # skip to the next track in qmmp
+export PLM_KEY_PREV="alt-b"                        # back to the previous track
+export PLM_KEY_PAUSE="alt-space"                   # pause / unpause (qmmp --play-pause)
 export PLM_KEY_HINTS="alt-h"                    # toggles the key-hints sidebar
 
 # hints sidebar for PLMmanager

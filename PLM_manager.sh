@@ -232,6 +232,9 @@ PLManager() {
                             --bind "$PLM_KEY_DELETE:execute(MoveEntries -d {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
                             --bind "$PLM_KEY_MOVE:execute(MoveEntries -m {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
                             --bind "$PLM_KEY_COPY:execute(MoveEntries -c {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
+                            --bind "$PLM_KEY_NEXT:execute-silent(nohup qmmp --next > /dev/null 2>&1 & echo \"[skip] next track\" >> $PLM_LOG_FILE; sleep 0.4)+abort" \
+                            --bind "$PLM_KEY_PREV:execute-silent(nohup qmmp --previous > /dev/null 2>&1 & echo \"[skip] previous track\" >> $PLM_LOG_FILE; sleep 0.4)+abort" \
+                            --bind "$PLM_KEY_PAUSE:execute-silent(nohup qmmp --play-pause > /dev/null 2>&1 & echo \"[play] pause/unpause\" >> $PLM_LOG_FILE)" \
                             --bind "ctrl-g:become(TBD)+reload($reload_cmd)" \
                             --bind "$PLM_KEY_HINTS:transform:if [ -f \"\$PLM_HINTS_FLAG\" ]; then rm -f \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_PREVIEW_WINDOW)+refresh-preview\"; else touch \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_HINTS_WINDOW)+refresh-preview\"; fi" \
                             --bind "$PLM_KEY_RESELECT:become(ReselectPlayingList )+reload(fzf --ansi --disabled  --query "$1.*$2" )" \
