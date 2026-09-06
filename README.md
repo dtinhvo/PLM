@@ -352,3 +352,8 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
 - [ ] `PLM_indexer.py` is mp3-only and ignores `PLM_AUDIO_EXTS` (file Issue if this annoys you).
 - [ ] `PLM_FZF_DEFAULT_OPTS` is defined but never consumed.
 - [ ] `PLayList` backgrounds `qmmp <playlist>` and `qmmp --next` : race condition?
+
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details. 
