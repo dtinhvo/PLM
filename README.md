@@ -10,7 +10,7 @@ There is no build step and no runtime: the package is a set of Bash files you `s
 
 No database management is necessary (phew) EXCEPT if you want to use `PlayArtist` (play all songs from an artist) in which case a database creation is the only way - done with a Python script for the tag index generation.
 
-> [!INFO]
+> [!TIP]
 > **Who this is for:**
 > You keep a local library of music (mp3s).
 > You don't believe in genres - You don't think default assigned genres are correct - You like to play multiple genres mixed in a session - You sometimes play `Jazz` but also sometimes play just `Bigband Jazz` but also sometimes play `Bossa Nova` with `Minimalist Piano`, etc.
