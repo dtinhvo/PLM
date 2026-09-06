@@ -114,6 +114,97 @@ _PLM_audio_regex() {
 }
 
 # ---------------------------------------------------------------------------
+# _PLM_file_manager — the graphical file manager to hand a path to
+#   $PLM_FILE_MANAGER wins if it is set; otherwise the first one installed.
+#   Kept separate from OpenInExplorer so the "which one" question has a single
+#   answer that the --select branch below can also test against.
+# ---------------------------------------------------------------------------
+_PLM_file_manager() {
+    local fm
+    for fm in "$PLM_FILE_MANAGER" dolphin nautilus nemo caja thunar pcmanfm xdg-open; do
+        [ -n "$fm" ] && command -v "$fm" >/dev/null 2>&1 && { printf '%s\n' "$fm"; return 0; }
+    done
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# OpenInExplorer — reveal the audio file of one m3u entry in the file manager
+#   Bound to $PLM_KEY_EXPLORER in PLManager.  Takes a raw fzf hit
+#   (playlist.m3u:LINE:#EXTINF:…) — the entry-pair invariant puts the path on
+#   LINE+1, so this is the same (filesrc, line1, line2) parse every other
+#   action does, via _parse_hit.
+#
+#   Three things the path needs before a GUI app will accept it:
+#     * ANSI codes stripped — belt and braces.  fzf --ansi already hands {}
+#       back without them, but _iter_fzf_hits strips too and a hit that
+#       arrives from anywhere else must not silently become a bad filename.
+#     * `\` → `/` — this library's entries use Windows separators.
+#     * made absolute.  An m3u path is relative to the PLAYLIST, which is only
+#       the same as PLM's CWD while the playlist sits directly in
+#       $PLM_PlayLists_Folder; resolve against the playlist's own folder first
+#       and fall back to CWD, which is what TrashEntry assumes.
+#
+#   Launched with nohup … & so the file manager outlives fzf's execute()
+#   subshell — without it the window dies with the binding.
+# ---------------------------------------------------------------------------
+OpenInExplorer() {
+    local arg=$1 fm path dir
+    arg=$(printf '%s' "$arg" | sed 's/\x1b\[[0-9;]*m//g')
+
+    # Two kinds of caller.  A library picker (PlayArtist / PlayTrack) hands over
+    # the audio file itself; PLManager hands over a rg hit whose path is on the
+    # NEXT line of the m3u.  Told apart by asking the filesystem rather than by
+    # parsing: a hit ("list.m3u:42:#EXTINF…") is never an existing file.
+    if [ -f "$arg" ] && [ "${arg##*.}" != "${PLM_M3U_EXT#.}" ]; then
+        path=$arg
+    else
+        _parse_hit "$arg" || return 1
+
+        path=$(awk "NR==$HIT_L2" "$HIT_FILE" | sed 's|\\|/|g' | tr -d '\r')
+        if [ -z "$path" ]; then
+            echo "[OpenInExplorer] no path on line $HIT_L2 of '$HIT_FILE'" >&2
+            return 1
+        fi
+
+        # An m3u path is relative to the PLAYLIST, which is only the same as
+        # PLM's CWD while the playlist sits directly in $PLM_PlayLists_Folder;
+        # resolve against the playlist's own folder first, then fall back to
+        # CWD, which is what TrashEntry assumes.
+        case "$path" in
+            /*) ;;
+            *)  dir=$(dirname -- "$HIT_FILE")
+                if [ -e "$dir/$path" ]; then path="$dir/$path"; fi ;;
+        esac
+    fi
+
+    if [ ! -e "$path" ]; then
+        echo "[OpenInExplorer] file not found: '$path'" >&2
+        return 1
+    fi
+    path=$(readlink -f -- "$path")
+
+    if ! fm=$(_PLM_file_manager); then
+        echo "[OpenInExplorer] no file manager found (set \$PLM_FILE_MANAGER)" >&2
+        return 1
+    fi
+
+    # --select opens the containing folder with the file highlighted; the
+    # others only understand a directory, so hand them the parent.
+    # nohup … & so the window outlives fzf's execute() subshell.
+    case "$fm" in
+        dolphin|nautilus|nemo|caja)
+            nohup "$fm" --select "$path" >/dev/null 2>&1 &
+            ;;
+        *)
+            nohup "$fm" "$(dirname -- "$path")" >/dev/null 2>&1 &
+            ;;
+    esac
+    disown 2>/dev/null
+
+    echo "[explorer] $fm: $path"
+}
+
+# ---------------------------------------------------------------------------
 # _PLM_find_audio — every audio file directly inside <dir>
 #   find -iname args are built from $PLM_AUDIO_EXTS, which replaces the old
 #   brace expansion `*.{mp3,wav,…}`: braces are expanded by bash BEFORE the
@@ -149,45 +240,144 @@ _PLM_colour_playlists() {
 }
 
 # ---------------------------------------------------------------------------
-# _PLM_render_hints — the key-hints sidebar, written to stdout
+# _PLM_picker_binds <preview_cmd> [preview_window] — the shared control set
+#   Every screen outside PLManager (the library pickers of PlayArtist and
+#   PlayTrack) gets the same keys for the things that are not about an m3u
+#   entry: the player transport, reveal-in-explorer, quit, and the alt-h hints
+#   sidebar.  All bound to the same $PLM_KEY_* as PLManager, so one rebind
+#   covers every screen and the hints panel cannot drift out of date.
+#
+#   Result lands in the $PLM_PICKER_BINDS array — an array cannot travel
+#   through the environment, but these pickers are assembled in the parent
+#   shell, so that is enough.  Use it as:
+#
+#       _PLM_picker_binds 'basename {}' 'up:1'
+#       fzf --query … "${PLM_PICKER_BINDS[@]}"
+#
+#   Differences from PLManager's versions, both deliberate:
+#     * next/prev do NOT +abort here.  In PLManager aborting is how the loop
+#       re-derives its query for the new track; in a picker it would throw away
+#       the selection you are in the middle of making.
+#     * the explorer key gets {} — a bare audio path on these screens, which
+#       OpenInExplorer detects and takes as-is instead of parsing it as a hit.
+# ---------------------------------------------------------------------------
+_PLM_picker_binds() {
+    local preview_cmd=${1:-'basename {}'}
+    local preview_window=${2:-up:1}
+    local qmmp_cli="nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start"
+
+    # the panel describes THIS screen; PLManager re-renders it for its own
+    _PLM_render_hints picker > "$PLM_HINTS_FILE" 2>/dev/null
+
+    local win="$preview_window"
+    [ -f "$PLM_HINTS_FLAG" ] && win="$PLM_HINTS_WINDOW"
+
+    PLM_PICKER_BINDS=(
+        --bind "$PLM_KEY_QUIT:execute(PLQuit)"
+        --bind "$PLM_KEY_NEXT:execute-silent($qmmp_cli --next > /dev/null 2>&1 & echo '[skip] next track' >> $PLM_LOG_FILE)"
+        --bind "$PLM_KEY_PREV:execute-silent($qmmp_cli --previous > /dev/null 2>&1 & echo '[skip] previous track' >> $PLM_LOG_FILE)"
+        --bind "$PLM_KEY_PAUSE:execute-silent($qmmp_cli --play-pause > /dev/null 2>&1 & echo '[play] pause/unpause' >> $PLM_LOG_FILE)"
+        --bind "$PLM_KEY_EXPLORER:execute-silent(OpenInExplorer {} >> $PLM_LOG_FILE 2>&1)"
+        --bind "$PLM_KEY_HINTS:transform:if [ -f \"\$PLM_HINTS_FLAG\" ]; then rm -f \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window($preview_window)+refresh-preview\"; else touch \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_HINTS_WINDOW)+refresh-preview\"; fi"
+        --preview "if [ -f \"\$PLM_HINTS_FLAG\" ]; then cat -- \"\$PLM_HINTS_FILE\"; else $preview_cmd; fi"
+        --preview-window "$win"
+        --header "$PLM_KEY_HINTS: keys   $PLM_KEY_NEXT/$PLM_KEY_PREV/$PLM_KEY_PAUSE: player   $PLM_KEY_QUIT: quit"
+    )
+}
+
+# ---------------------------------------------------------------------------
+# _PLM_render_hints [scope] — the key-hints sidebar, written to stdout
 #   Built from the $PLM_KEY_* variables so a rebind can never leave the panel
 #   describing keys that no longer exist.  Sized for $PLM_HINTS_WINDOW (40 col).
+#
+#   scope "manager" (default) — PLManager's full set.
+#   scope "picker"            — the library pickers (PlayArtist / PlayTrack),
+#     which share the player controls, the explorer key and quit, but have no
+#     m3u entry under the cursor and so none of the move/copy/tag actions.
+#     Same $PLM_HINTS_FILE and $PLM_HINTS_FLAG: whichever screen is on top
+#     rewrites the file, so the panel always describes the screen you can see.
 # ---------------------------------------------------------------------------
 _PLM_render_hints() {
-    local b=$'\033[1m' d=$'\033[2m' k=$'\033[36m' o=$'\033[0m'
+    local scope=${1:-manager}
+    local b=$'\033[1m' d=$'\033[2m' o=$'\033[0m'
     local yel=$'\033[1;33m' grn=$'\033[1;32m'
     local yelr=$'\033[1;7;33m' grnr=$'\033[1;7;32m'
+
+    # Key colours by category, from $PLM_COL_KEY_* (PLM_env) so they can be
+    # retuned in one place.  Those carry \x1b[…m like the other PLM_COL_*, and
+    # everything below is printed with %s, hence the one-off %b conversion.
+    local kpl kmp kqm kui
+    kpl=$(printf '%b' "${PLM_COL_KEY_PLAYLIST:-\x1b[1;36m}")   # m3u edits
+    kmp=$(printf '%b' "${PLM_COL_KEY_MP3:-\x1b[1;35m}")        # the audio file
+    kqm=$(printf '%b' "${PLM_COL_KEY_QMMP:-\x1b[1;34m}")       # the player
+    kui=$(printf '%b' "${PLM_COL_KEY_PLM:-\x1b[1;37m}")        # PLM itself
+
+    if [ "$scope" = "picker" ]; then
+        printf '%s\n' \
+"${b}  Library picker keys${o}" \
+"${d}  ─────────────────────────────${o}" \
+"  ${kpl}enter${o}   play the selection" \
+"  ${kpl}tab${o}     mark several tracks" \
+"  ${kmp}${PLM_KEY_EXPLORER}${o}   show file in explorer" \
+"  ${kqm}${PLM_KEY_NEXT}${o}   next track" \
+"  ${kqm}${PLM_KEY_PREV}${o}   previous track" \
+"  ${kqm}${PLM_KEY_PAUSE}${o} pause / unpause" \
+"  ${kui}${PLM_KEY_QUIT}${o}  quit PLM + qmmp" \
+"  ${kui}esc${o}     cancel the picker" \
+"  ${kui}${PLM_KEY_HINTS}${o}   close this panel" \
+"" \
+"${d}  The picked track(s) become a tmp${o}" \
+"${d}  playlist, then the normal manager${o}" \
+"${d}  loop runs — where the full key set${o}" \
+"${d}  applies.${o}" \
+"" \
+"${b}  Key colours${o}" \
+"${d}  ─────────────────────────────${o}" \
+"  ${kpl}■${o} builds the queue" \
+"  ${kmp}■${o} the audio file itself" \
+"  ${kqm}■${o} player controls" \
+"  ${kui}■${o} PLM itself"
+        return 0
+    fi
 
     printf '%s\n' \
 "${b}  PLManager keys${o}" \
 "${d}  ─────────────────────────────${o}" \
-"  ${k}enter${o}   auto — move if the source" \
+"  ${kpl}enter${o}   auto — move if the source" \
 "          is a ${yel}${PLM_TEST_PLAYLIST_PREFIX}${o} playlist, else copy" \
-"  ${k}tab${o}     mark several entries" \
-"  ${k}${PLM_KEY_MOVE}${o}  move to a playlist" \
-"  ${k}${PLM_KEY_COPY}${o}  copy to a playlist" \
-"  ${k}${PLM_KEY_DELETE}${o}  drop the entry (file kept)" \
-"  ${k}${PLM_KEY_TAGS}${o}  edit tags" \
-"  ${k}${PLM_KEY_RESELECT}${o}  reselect the playlist" \
-"  ${k}${PLM_KEY_NEXT}${o}   next track" \
-"  ${k}${PLM_KEY_PREV}${o}   previous track" \
-"  ${k}${PLM_KEY_PAUSE}${o} pause / unpause" \
-"  ${k}${PLM_KEY_QUIT}${o}  quit PLM + qmmp" \
-"  ${k}esc${o}     reopen on this track" \
-"  ${k}${PLM_KEY_HINTS}${o}   close this panel" \
+"  ${kpl}tab${o}     mark several entries" \
+"  ${kpl}${PLM_KEY_MOVE}${o}  move to a playlist" \
+"  ${kpl}${PLM_KEY_COPY}${o}  copy to a playlist" \
+"  ${kpl}${PLM_KEY_DELETE}${o}  drop the entry (file kept)" \
+"  ${kmp}${PLM_KEY_TAGS}${o}  edit tags" \
+"  ${kmp}${PLM_KEY_EXPLORER}${o}   show file in explorer" \
+"  ${kqm}${PLM_KEY_NEXT}${o}   next track" \
+"  ${kqm}${PLM_KEY_PREV}${o}   previous track" \
+"  ${kqm}${PLM_KEY_PAUSE}${o} pause / unpause" \
+"  ${kqm}${PLM_KEY_RESELECT}${o}  reselect the playlist" \
+"  ${kui}${PLM_KEY_QUIT}${o}  quit PLM + qmmp" \
+"  ${kui}esc${o}     reopen on this track" \
+"  ${kui}${PLM_KEY_HINTS}${o}   close this panel" \
 "" \
 "${b}  Destination picker${o}" \
 "${d}  ─────────────────────────────${o}" \
-"  ${k}${PLM_TRASH_PLAYLIST}${o}  trash the track" \
-"  ${k}${PLM_NEW_PLAYLIST}${o} create a playlist" \
-"  ${k}tab${o}     write to several at once" \
+"  ${kmp}${PLM_TRASH_PLAYLIST}${o}  trash the track" \
+"  ${kpl}${PLM_NEW_PLAYLIST}${o} create a playlist" \
+"  ${kpl}tab${o}     write to several at once" \
+"" \
+"${b}  Key colours${o}" \
+"${d}  ─────────────────────────────${o}" \
+"  ${kpl}■${o} playlist edits" \
+"  ${kmp}■${o} the audio file itself" \
+"  ${kqm}■${o} player controls" \
+"  ${kui}■${o} PLM itself" \
 "" \
 "${b}  Row colours${o}" \
 "${d}  ─────────────────────────────${o}" \
 "  ${yel}■${o} ${PLM_TEST_PLAYLIST_PREFIX} playlists" \
 "  ${grn}■${o} ${PLM_FIXED_PLAYLIST_PREFIX} playlists" \
 "  ${yelr} ${o}/${grnr} ${o} the source playlist," \
-"          in its own kind's colour"
+"          currently playing"
 }
 
 # ---------------------------------------------------------------------------
@@ -736,7 +926,7 @@ _PLM_set_library() {
         _PLM_probe_writable "$root" || { _PLM_report_unwritable "$root"; return 1; }
     fi
 
-    local pls="$root/${PLM_PlayLists_Folder_name:-playlists-stage}"
+    local pls="$root/${PLM_PlayLists_Folder_name:-playlists}"
 
     # the playlists folder is where every sed -i lands, so it gets its own probe
     # when it already exists — a root can be writable while the folder inside it
@@ -767,7 +957,7 @@ _PLM_set_library() {
 _PLM_scan_media() {
     local roots=${PLM_MEDIA_ROOTS:-"/media /media/$USER /run/media/$USER /mnt"}
     local depth=${PLM_MEDIA_DEPTH:-3}
-    local name=${PLM_PlayLists_Folder_name:-playlists-stage}
+    local name=${PLM_PlayLists_Folder_name:-playlists}
     local r d libs=() auds=() dirs=()
 
     while IFS= read -r d; do
@@ -814,7 +1004,7 @@ _PLM_pick_media_library() {
         fzf --no-multi --reverse --height='~20' \
             --delimiter=$'\t' \
             --prompt="Library root on the device: " \
-            --header=$'Tag shows what the directory looks like\n[library] already holds a '"${PLM_PlayLists_Folder_name:-playlists-stage}" \
+            --header=$'Tag shows what the directory looks like\n[library] already holds a '"${PLM_PlayLists_Folder_name:-playlists}" \
             --preview 'ls -1 -- {2} 2>/dev/null | head -40' \
             --preview-window='right,45%,border-left' ) || return 1
 
@@ -863,7 +1053,10 @@ export -f IfTrashing
 export -f IfNewPlaylist
 export -f _PLM_ensure_playlist
 export -f _PLM_audio_regex
+export -f _PLM_file_manager
+export -f OpenInExplorer
 export -f _PLM_render_hints
+export -f _PLM_picker_binds
 export -f _PLM_colour_playlists
 export -f _PLM_find_audio
 export -f _PLM_prompt_new_playlist

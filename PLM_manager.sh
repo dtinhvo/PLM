@@ -117,9 +117,22 @@ ReselectPlayingList() {
         | _PLM_colour_playlists | \
         fzf --ansi --bind "ctrl-q:execute(PLQuit)"
     ) 
-    # TODO! var for path here
+    # Esc out of the picker returns nothing — leave the player alone rather than
+    # handing qmmp an empty argument.
+    if [ -z "$activePlaylistFile" ]; then
+        echo "[ReselectPlayingList] cancelled, keeping $(cat "$PLM_ACTIVE_PLAYLIST_FILE" 2>/dev/null)" >> "$PLM_LOG_FILE"
+        return 0
+    fi
+
     QT_QPA_PLATFORM=offscreen qmmp "$activePlaylistFile" >/dev/null 2>&1
     QT_QPA_PLATFORM=offscreen qmmp --next >/dev/null 2>&1  # next track for random
+
+    # Publish the new source playlist.  PLM's loop re-reads this file for every
+    # PLManager round and passes it as $4, which is what RG_SRC globs, HL_SRC
+    # colours and the preview banner names — without this write the reselect
+    # changes what plays but every one of those stays on the OLD playlist.
+    basename "$activePlaylistFile" > "$PLM_ACTIVE_PLAYLIST_FILE"
+    echo "[reselect] $(basename "$activePlaylistFile")" >> "$PLM_LOG_FILE"
 }
 export -f ReselectPlayingList
 
@@ -209,8 +222,9 @@ PLManager() {
     header_text=$(qmmp --status 2>/dev/null | sed -n -e '2p' -e '3p' -e '4p' -e '5p'  | sed 's/\(([^)]*)\)/'$'\033''[1;33m&'$'\033''[0m/g'  | awk '{ if (NR == 4) print "\033[34m" $0 "\033[0m"; else print $0 }')
     [ -n "$MERGED" ] && header_text=$'\033[1;35m'"$MERGED_NOTICE"$'\033[0m\n'"$header_text"
 
-    # preview banner: name the playlist, or  lack thereof
-    local preview_title="$activePlaylistFile"
+    # preview banner: name the source playlist ($4), or  lack thereof.
+    local preview_title="${4##*/}"
+    [ -z "$preview_title" ] && preview_title="(no source playlist)"
     [ -n "$MERGED" ] && preview_title="$MERGED_NOTICE"
 
     # ── key-hints sidebar ────────────────────────────────────────────────
@@ -232,15 +246,18 @@ PLManager() {
                             --bind "$PLM_KEY_DELETE:execute(MoveEntries -d {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
                             --bind "$PLM_KEY_MOVE:execute(MoveEntries -m {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
                             --bind "$PLM_KEY_COPY:execute(MoveEntries -c {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
-                            --bind "$PLM_KEY_NEXT:execute-silent(nohup qmmp --next > /dev/null 2>&1 & echo \"[skip] next track\" >> $PLM_LOG_FILE; sleep 0.4)+abort" \
-                            --bind "$PLM_KEY_PREV:execute-silent(nohup qmmp --previous > /dev/null 2>&1 & echo \"[skip] previous track\" >> $PLM_LOG_FILE; sleep 0.4)+abort" \
-                            --bind "$PLM_KEY_PAUSE:execute-silent(nohup qmmp --play-pause > /dev/null 2>&1 & echo \"[play] pause/unpause\" >> $PLM_LOG_FILE)" \
+                            --bind "$PLM_KEY_NEXT:execute-silent(nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --next > /dev/null 2>&1 & echo \"[skip] next track\" >> $PLM_LOG_FILE; sleep 0.4)+abort" \
+                            --bind "$PLM_KEY_PREV:execute-silent(nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --previous > /dev/null 2>&1 & echo \"[skip] previous track\" >> $PLM_LOG_FILE; sleep 0.4)+abort" \
+                            --bind "$PLM_KEY_PAUSE:execute-silent(nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --play-pause > /dev/null 2>&1 & echo \"[play] pause/unpause\" >> $PLM_LOG_FILE)" \
+                            --bind "$PLM_KEY_EXPLORER:execute-silent(OpenInExplorer {} >> $PLM_LOG_FILE 2>&1)" \
                             --bind "ctrl-g:become(TBD)+reload($reload_cmd)" \
                             --bind "$PLM_KEY_HINTS:transform:if [ -f \"\$PLM_HINTS_FLAG\" ]; then rm -f \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_PREVIEW_WINDOW)+refresh-preview\"; else touch \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_HINTS_WINDOW)+refresh-preview\"; fi" \
                             --bind "$PLM_KEY_RESELECT:become(ReselectPlayingList )+reload(fzf --ansi --disabled  --query "$1.*$2" )" \
                             --delimiter : \
                             --preview "if [ -f \"\$PLM_HINTS_FLAG\" ]; then cat -- \"\$PLM_HINTS_FILE\"; else echo -e \" \n╭─ Processing selected playlist: \033[1;35m $preview_title \033[0m \n╰─ press $PLM_KEY_HINTS for control hints ────────────────────────────────────────\n \";$preview_cmd; fi" \
                             --preview-window "$preview_window") # WARN even pipe outside here would not work | tee -a $PLM_LOG_FILE 
+                            # the qmmp controls options are essential to retain randomness of the playlist 
+                            
     # how fzf's +f handles multi for me:
     # writes the selection to a temp file and substitutes the path to that file — one word, always. So no matter how many entries you Tab-select, the binding expands to a 2-argument call:
         # select 1 entry   →  MoveEntries -m /tmp/fzf-sel-8231

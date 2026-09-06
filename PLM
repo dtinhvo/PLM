@@ -201,6 +201,7 @@ tmux kill-session -t "$PLM_tmux_session"
 killall qmmp
 kill $PLM_STATUS_LOGGER_BACKGROUND_PID 
 }
+export -f PLQuit
  
 # todo these can go?
 PlayNext()
@@ -309,7 +310,7 @@ _PLM_set_library "$PLM_Library_Folder" --quiet --no-verify
 # ---------------------------------------------------------------------------
 PLM() {
     local activePlaylistFile
-    activePlaylistFile=$(cat /tmp/qmmp_activePLaylist)
+    activePlaylistFile=$(cat "$PLM_ACTIVE_PLAYLIST_FILE")
  
     if pgrep -x "qmmp" >/dev/null; then
         local INITIAL_QUERY
@@ -361,7 +362,7 @@ fi
         # spawn inner PLManager that is waited until completion
         touch "$MANAGING_FLAG"
         while [[ -f "$MANAGING_FLAG" ]] ; do
-            PLManager "$(Artist2Pattern)" "$(Track2Pattern)" "$(Album2Pattern)" "$(cat /tmp/qmmp_activePLaylist)" # tee here is unreliable - called from fzf is weird
+            PLManager "$(Artist2Pattern)" "$(Track2Pattern)" "$(Album2Pattern)" "$(cat "$PLM_ACTIVE_PLAYLIST_FILE")" # tee here is unreliable - called from fzf is weird
         done 
         
     done
@@ -385,7 +386,6 @@ local selectedPlaylists=()
 PLInit || return 1 # only panic if something is missing
 
 if [ -z "$1" ]; then
-    export -f PLQuit
     # -------------------- core: Playlist selector -------------------------- #
     playlist_list=$(
                 find $PLM_PlayLists_Folder -path '**/.git' -prune -o -type f -name "*$PLM_FIXED_PLAYLIST_PREFIX*" -print
@@ -438,7 +438,7 @@ if [ "${#selectedPlaylists[@]}" -gt 1 ]; then # if multi playlists selected
 else # if single playlist == 1 active
     activePlaylistFile="${selectedPlaylists[0]}" # 
 fi
-basename "$activePlaylistFile" > /tmp/qmmp_activePLaylist
+basename "$activePlaylistFile" > "$PLM_ACTIVE_PLAYLIST_FILE"
 
 # delete if playlist empty — only ever prunes a REAL playlist, never the merge
 if [ "${#selectedPlaylists[@]}" -eq 1 ]; then
@@ -478,8 +478,16 @@ complete -F _qmmp_autocomplete playList
 # Logs
 # ---
 # PLM (wrapped by PLayList)
+# ---------------------------------------------------------------------------
 PlayList_mux() 
 {
+    local inner_cmd
+    if [ "$#" -gt 0 ]; then
+        printf -v inner_cmd '%q ' "$@"
+    else
+        inner_cmd="PLayList"
+    fi
+
     # --- Configuration ---
     # Specify the log file you want to tail
     LOG_FILE=$PLM_LOG_FILE 
@@ -552,7 +560,7 @@ PlayList_mux()
     tmux select-pane -D -t "$PLM_tmux_session" 
 
     # 5. Send the command to run fzf in the bottom pane.
-    tmux send-keys -t "$PLM_tmux_session" "PLayList" C-m # this is the manager / player!
+    tmux send-keys -t "$PLM_tmux_session" "export PLM_MUX_INNER=1; $inner_cmd" C-m # this is the manager / player!
 
     # hand over control: enter
     tmux attach -t "$PLM_tmux_session"
@@ -634,6 +642,12 @@ PlayTrack() {
 # deliberately does not satisfy the entry-pair invariant — PLManager's rg passes
 # search for "EXTINF.*" and simply never match it. # Works, but never reviewed
 PlayArtist() {
+    # start mux interface
+    if [ -z "$PLM_MUX_INNER" ] && [ -z "$PLM_NO_MUX" ]; then
+        PlayList_mux PlayArtist "$@"
+        return $?
+    fi
+
     local QUERY
     if [ -n "$1" ]; then
         QUERY="$1"
@@ -643,14 +657,18 @@ PlayArtist() {
 
     local lib_cmd="rg --files \"$PLM_Library_Folder\" 2>/dev/null | rg -i '$(_PLM_audio_regex)'" # library source: every audio file under the library folder . 
 
+    # same controls as PLManager for everything that is not about an m3u entry:
+    # player transport, reveal-in-explorer, quit, alt-h hints (see
+    # _PLM_picker_binds).  The panel and the keys come from the one $PLM_KEY_*
+    # set, so this screen cannot drift out of step with the manager's.
+    _PLM_picker_binds 'basename {}' 'up:1'
+
     local SEED
     SEED=$(eval "$lib_cmd" | \
         fzf --no-multi \
             --query "$QUERY" \
             --prompt="Pick one track by the artist [Enter]: " \
-            --preview 'basename {}' \
-            --preview-window=up:1 \
-            --bind "ctrl-q:execute(PLQuit)")
+            "${PLM_PICKER_BINDS[@]}")
 
     if [ -z "$SEED" ]; then
         echo "No track selected."

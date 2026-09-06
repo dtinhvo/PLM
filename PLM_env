@@ -9,13 +9,19 @@ export PLM_VIEW_FILE="/tmp/PLM_view.log"
 export PLM_qmmp_STATUS_FILE="/tmp/qmmpstatus.tmp"
 export PLM_TRIMMED_LOG_FILE="/tmp/old_PLM_log.tmp"
 export PLM_CONCAT_PLAYLIST="/tmp/qmmp_concat_playlist.m3u" # PLayList's multi-select merge target
+# basename of the playlist qmmp currently holds.  Written by whoever loads a
+# playlist (PLayList, ReselectPlayingList), read by PLM's loop and handed to
+# PLManager as $4 — which is what picks the source playlist out of the search
+# results, so a loader that forgets to write it leaves the whole screen on the
+# previous playlist.
+export PLM_ACTIVE_PLAYLIST_FILE="/tmp/qmmp_activePLaylist"
 
 export PLM_tmux_session="PLMmux"
 # where this package lives — 
 export PLM_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 export PLM_Library_Folder="${PLM_Library_Folder:-$HOME/Music/library}" # Re-sourcing PLM must not undo path choice.
-export PLM_PlayLists_Folder_name="playlists-stage" # legacy
+export PLM_PlayLists_Folder_name="playlists" 
 export PLM_MUSIC_DB_NAME="music_index.db"
 
 export PLM_MEDIA_ROOTS="/media /media/$USER /run/media/$USER /mnt" # removable drives candidates
@@ -41,15 +47,21 @@ export MANAGING_FLAG="/tmp/PLM_managingFlag"
 # so it is keyed to the naming prefixes above and nothing else:
 #   *$PLM_TEST_PLAYLIST_PREFIX*  -> _TEST   (staging / WIP)
 #   everything else              -> _FIXED  (the $PLM_FIXED_PLAYLIST_PREFIX keepers)
-# The _SRC variants are the same hue with reverse video added: in PLManager the
-# playlist the track is currently being managed from must stand out from its
-# siblings, but it should still read as the kind of playlist it actually is
-# rather than as a third, unrelated colour.
-export PLM_COL_TEST='\x1b[1;4;33m'         # orange (33=yellow, closest to orange in ANSI)
+# The _SRC variants are the same hue with reverse bg added: 
+export PLM_COL_TEST='\x1b[1;4;33m'         # yellow 
 export PLM_COL_FIXED='\x1b[1;4;32m'        # green
-export PLM_COL_TEST_SRC='\x1b[1;4;7;33m'   # ditto, reverse video
-export PLM_COL_FIXED_SRC='\x1b[1;4;7;32m'
+export PLM_COL_TEST_SRC='\x1b[1;4;7;33m'   # reverse bg
+export PLM_COL_FIXED_SRC='\x1b[1;4;7;32m'  # reverse bg 
 export PLM_COL_OFF='\x1b[0m'
+
+# Key-hint colours in the alt-h sidebar.  The colour says WHAT A KEY TOUCHES —
+# the four things PLM can act on — so a key that both moves an m3u entry and
+# moves the audio file (the rm.m3u destination) is coloured by the file.
+# Read through printf '%b', so the format is the \x1b[…m one used above.
+export PLM_COL_KEY_PLAYLIST='\x1b[1;36m'   # cyan    - edits an m3u: move / copy / drop / mark
+export PLM_COL_KEY_MP3='\x1b[1;35m'        # magenta - touches the audio file: tags, trash, reveal
+export PLM_COL_KEY_QMMP='\x1b[1;34m'       # blue    - drives the player: skip, pause, reselect
+export PLM_COL_KEY_PLM='\x1b[1;37m'        # white   - PLM's own UI: quit, reopen, this panel
 
 # PLManager keybindings  - used also for hints
 export PLM_KEY_MOVE="ctrl-x"
@@ -61,6 +73,8 @@ export PLM_KEY_QUIT="ctrl-q"
 export PLM_KEY_NEXT="alt-n"                        # skip to the next track in qmmp
 export PLM_KEY_PREV="alt-b"                        # back to the previous track
 export PLM_KEY_PAUSE="alt-space"                   # pause / unpause (qmmp --play-pause)
+export PLM_KEY_EXPLORER="alt-E"                    # reveal the mp3 in the file manager
+
 export PLM_KEY_HINTS="alt-h"                    # toggles the key-hints sidebar
 
 # hints sidebar for PLMmanager
@@ -68,6 +82,9 @@ export PLM_HINTS_FILE="/tmp/PLM_hints.txt"
 export PLM_HINTS_FLAG="/tmp/PLM_hintsShown"
 export PLM_HINTS_WINDOW="right,40,border-left"
 export PLM_PREVIEW_WINDOW="up,60%,border-bottom,+{2}+3/3,~3"
+
+# graphical file manager for $PLM_KEY_EXPLORER.  Empty = first one found
+export PLM_FILE_MANAGER="${PLM_FILE_MANAGER:-}"
 
 # audio files considered. 
 # note: PlayArtist's index lookup only ever returns mp3.
