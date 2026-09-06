@@ -1,0 +1,98 @@
+#!/bin/bash
+ 
+export PLM_STATUS_LOGGER_BACKGROUND_PID=-1
+
+export PLM_WINDOWS=0
+ 
+export PLM_LOG_FILE="/tmp/qmmp_status.log" 
+export PLM_VIEW_FILE="/tmp/PLM_view.log"
+export PLM_qmmp_STATUS_FILE="/tmp/qmmpstatus.tmp"
+export PLM_TRIMMED_LOG_FILE="/tmp/old_PLM_log.tmp"
+export PLM_CONCAT_PLAYLIST="/tmp/qmmp_concat_playlist.m3u" # PLayList's multi-select merge target
+
+export PLM_tmux_session="PLMmux"
+# where this package lives — 
+export PLM_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+export PLM_Library_Folder="${PLM_Library_Folder:-$HOME/Music/library}" # Re-sourcing PLM must not undo path choice.
+export PLM_PlayLists_Folder_name="playlists-stage" # legacy
+export PLM_MUSIC_DB_NAME="music_index.db"
+
+export PLM_MEDIA_ROOTS="/media /media/$USER /run/media/$USER /mnt" # removable drives candidates
+export PLM_MEDIA_DEPTH=3
+ 
+# Playlist naming: {Prefix}{Separator}{...}
+export PLM_FIXED_PLAYLIST_PREFIX="OK"           # Meant as finished, stable playlists
+export PLM_TEST_PLAYLIST_PREFIX="Test"          # Meant as experimental, incoming addition, to be filtered, WIP, etc.
+export PLM_PLAYLIST_SEPARATOR="_"               
+export PLM_M3U_EXT=".m3u"
+export PLM_M3U_HEADER="#EXTM3U"                 # header ("shebang") every m3u must open with
+export PLM_TRASH_PLAYLIST="rm$PLM_M3U_EXT"      # manager selector/ dst playlist  : trash the track, recoverable
+export PLM_NEW_PLAYLIST="new$PLM_M3U_EXT"       # manager selector/ dst playlist  : prompt for a new m3u
+export PLM_NEW_PLAYLIST_PREFIX="$PLM_FIXED_PLAYLIST_PREFIX$PLM_PLAYLIST_SEPARATOR"  # pre-filled in that prompt
+export PLM_Duplicates_File="${PLM_FIXED_PLAYLIST_PREFIX}${PLM_PLAYLIST_SEPARATOR}zDuplicates" # TODO this should be deprecated
+export PLM_TRASH_FOLDER=".trash"
+export PLM_TRASH_LOG="rm.log"
+export PLM_Ressurect_Playlist="${PLM_TEST_PLAYLIST_PREFIX}${PLM_PLAYLIST_SEPARATOR}99_Resurrected$PLM_M3U_EXT"
+export MANAGING_FLAG="/tmp/PLM_managingFlag"
+
+# Playlist row colours — one scheme, two consumers: the PLayList picker and
+# PLManager's search results.  The colour says WHICH KIND of playlist a row is,
+# so it is keyed to the naming prefixes above and nothing else:
+#   *$PLM_TEST_PLAYLIST_PREFIX*  -> _TEST   (staging / WIP)
+#   everything else              -> _FIXED  (the $PLM_FIXED_PLAYLIST_PREFIX keepers)
+# The _SRC variants are the same hue with reverse video added: in PLManager the
+# playlist the track is currently being managed from must stand out from its
+# siblings, but it should still read as the kind of playlist it actually is
+# rather than as a third, unrelated colour.
+export PLM_COL_TEST='\x1b[1;4;33m'         # orange (33=yellow, closest to orange in ANSI)
+export PLM_COL_FIXED='\x1b[1;4;32m'        # green
+export PLM_COL_TEST_SRC='\x1b[1;4;7;33m'   # ditto, reverse video
+export PLM_COL_FIXED_SRC='\x1b[1;4;7;32m'
+export PLM_COL_OFF='\x1b[0m'
+
+# PLManager keybindings  - used also for hints
+export PLM_KEY_MOVE="ctrl-x"
+export PLM_KEY_COPY="ctrl-c"
+export PLM_KEY_DELETE="ctrl-d"
+export PLM_KEY_TAGS="ctrl-e"
+export PLM_KEY_RESELECT="ctrl-r"
+export PLM_KEY_QUIT="ctrl-q"
+export PLM_KEY_HINTS="alt-h"                    # toggles the key-hints sidebar
+
+# hints sidebar for PLMmanager
+export PLM_HINTS_FILE="/tmp/PLM_hints.txt"
+export PLM_HINTS_FLAG="/tmp/PLM_hintsShown"
+export PLM_HINTS_WINDOW="right,40,border-left"
+export PLM_PREVIEW_WINDOW="up,60%,border-bottom,+{2}+3/3,~3"
+
+# audio files considered. 
+# note: PlayArtist's index lookup only ever returns mp3.
+export PLM_AUDIO_EXTS="mp3 wav flac aac ogg m4a"
+
+# editor used by the rename bindings and the tag editor.  
+export PLM_EDITOR="${EDITOR:-nvim}"
+
+
+# fzf opt - i personally use this 
+# Note: F2 messes up the rename workflow
+export PLM_FZF_DEFAULT_OPTS="--color=bg+:#293739,bg:#1B1D1E,border:#808080,spinner:#E6DB74,hl:#7E8E91,fg:#F8F8F2,header:#7E8E91,info:#A6E22E,pointer:#A6E22E,marker:#F92672,fg+:#F8F8F2,prompt:#F92672,hl+:#F92672 \
+                        --multi \
+                         --reverse --keep-right --bind=alt-q:abort \
+                         --bind 'pgup:page-up' \
+                         --bind 'pgdn:page-down' \
+                         --bind='alt-e:execute($PLM_EDITOR -c \"lua vim.g.resession_skip_save = true\" {+})'  \
+                         --bind='alt-c:execute(cd $(dirname {+}))' \
+                         --bind='shift-up:preview-page-up,shift-down:preview-page-down' \
+                         --bind 'f2:execute($PLM_EDITOR {+} +RenameCurrent)' \
+                         --bind 'ctrl-v:transform(echo \"put(\$(xclip -o -selection clipboard))\")' \
+                         --bind='ctrl-x:execute(echo {1} | xargs realpath | head -c -1 | tee /dev/tty | xclip -selection clipboard)' \
+                        "
+ 
+
+# cosmetic variables
+# tmux/monitorer layout
+export PLM_logger_height=20
+export PLM_status_height=9
+export PLM_STATUS_HEIGHT=27   # true rendered height of the monitorer's status block, subtracted from the pane height to size the log tail
+ 

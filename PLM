@@ -1,0 +1,846 @@
+#!/bin/bash
+# Dependencies: 
+# fzf
+# qmmp
+# id3v2
+ 
+# ———————————————————————— qmmp ————————————————————————
+# FEAT control volume 
+ 
+# ———————————————————————— Playing modes ————————————————————————
+
+# FEAT! continue playing list (cont, dont disrupt) 
+    # also 
+ 
+# FEAT!! single out song to manage: PLManager() "$(Artist2Pattern)" "$(Track2Pattern)" "$(Album2Pattern)" 
+    # prompt for track
+    # prompt for artist optional
+    # manage
+    #   exit?
+ 
+# FEAT! composite playlists
+    # pair option string 
+    # --> ? PlayList
+
+# TODO if no match, check TRASH_PLAYLIST
+    # restore functionality for trash
+ 
+# ————————————————————————  source manipulation ————————————————————————
+# TODO adjust volume level of current track
+    # preview is nice
+
+# ————————————————————————  Managing modes ————————————————————————
+
+ 
+# TODO reenter the managing view?
+# TODO make 
+# FEAT! safety : isolation
+
+# FEAT shadowrealm downvotes poweramp
+    # how to export from poweramp, but just downvotes?
+    # automatic export or wrangle on usb connect?
+        # remotely?
+    # --> automate rm from library files on wrangled list
+
+# FEAT increase volume in-place
+# eg. mp3gain -g N input.mp3 
+
+
+
+# FEAT prettify and unite logging of actions taken for songs
+# needs to be tracable: line 2 only?
+
+
+# TODO! m3u matching current playing m3u to be in front, somehow hl differently
+
+
+# ———————————————————————— Cross platform ————————————————————————
+ 
+# FEAT enable windows access 
+    # sudo apt install pulseaudio
+
+# FEAT 
+
+
+# FEAT HARD select file of current playlist to switch to
+    # neovim interface, confirm with line(+1). 
+
+
+# TODO! fzf to leave some lines for logs
+# TODO! keep log on top, and the reprompt (Apply more option) To display in the screen slot ABOVE fzf and BELOW logs
+
+# TODO PLM to get stat of current song echoed somewhere
+
+# TODO delete yt playlist from cmd: https://chatgpt.com/share/678ec420-db08-8003-8070-cfccd1dda98c
+#      input of the index is from mpv playing 
+
+
+ 
+
+
+
+# ————————————————————————  ————————————————————————
+ 
+# FEAT folder adder , like this:
+# find /path/to/your/folder -type f -name '*.mp3' | sort > playlist.m3u  
+# M3U spec: 
+
+# - some mechanism to Compare stats of dupes: maybe a separate command or spawn -- raw dump side by side 
+ 
+#### Stage 2: Database management
+    #  why: search for artist is bad. This makes a new play artist
+    # postgres: + cli viewer: https://github.com/dbcli/pgcli 
+
+# TODO write all data to a database file in https://chatgpt.com/c/67fabd6d-13f4-8003-93e3-b6cfc1ea10eb 
+    
+
+# TODO ripgrep a field to bash 
+
+############### Stage 3: Lightweight custom player
+# use qmmp lib
+#  https://chatgpt.com/c/687b8b58-36dc-8003-be34-dab56fedf7a5 
+
+
+
+# ———————————————————————— checklist before public ————————————————————————
+
+
+#######___________________________________________________________________#########
+
+# mount drive E for music
+mntE()
+{
+# export PLM_MUSIC_DRIVE_DEV="/dev/nvme0n1p2"       # mntE
+# export PLM_MUSIC_MOUNT_POINT="/media/tvo/"         # mntE
+
+sudo mount -t ntfs -o nls=utf8,umask=0222 /dev/nvme0n1p2  /media/tvo/
+}
+
+# TODO library preparer needs to set up:
+    # child location vs parent lib
+    # sample OK_ files
+    # make a rm dummy file
+
+
+#### MUSIC PLAYING
+# Dependencies
+# tmux qmmp fzf rg (mutlitail?)
+# Environment variables
+
+
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)/PLM_env"
+
+# ---------------------------------------------------------------------------
+# PLInit — make sure the tools, folders and sentinel files PLM assumes exist.
+# Error out only if something is wrong
+# ---------------------------------------------------------------------------
+PLInit()
+{
+    local rc=0 cmd missing=()
+
+    # --- hard dependencies -------------------------------------------------
+    for cmd in qmmp fzf rg tmux; do
+        command -v "$cmd" >/dev/null 2>&1 || missing+=( "$cmd" )
+    done
+    if [ "${#missing[@]}" -gt 0 ]; then
+        echo "PLInit: missing required program(s): ${missing[*]} — see README.md" >&2
+        rc=1
+    fi
+
+    # --- soft dependencies: the feature degrades, PLM still runs ------------
+    missing=()
+    for cmd in batcat id3v2 python3; do
+        command -v "$cmd" >/dev/null 2>&1 || missing+=( "$cmd" )
+    done
+    [ "${#missing[@]}" -gt 0 ] && \
+        echo "PLInit: optional utilities missing: ${missing[*]} (preview / monitor / tags / index)" >&2
+
+    # --- library ------------------------------------------------------------
+    if [ ! -d "$PLM_Library_Folder" ]; then
+        echo "PLInit: library folder does not exist: '$PLM_Library_Folder'" >&2
+        echo "hint: run PLSetLibrary to point PLM at a mounted library" >&2
+        return 1
+    fi
+
+    # check if lib writable or not
+    _PLM_probe_writable "$PLM_Library_Folder" || {
+        _PLM_report_unwritable "$PLM_Library_Folder"
+        return 1
+    }
+
+    # --- playlists folder + trash folder -----
+    local dir
+    for dir in "$PLM_PlayLists_Folder" "$PLM_PlayLists_Folder/../$PLM_TRASH_FOLDER"; do
+        [ -d "$dir" ] && continue
+        if mkdir -p "$dir"; then
+            echo "PLInit: created $dir"
+        else
+            echo "PLInit: could not create $dir" >&2
+            rc=1
+        fi
+    done
+
+    local trashlog="$PLM_PlayLists_Folder/../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
+    [ -f "$trashlog" ] || { touch "$trashlog" && echo "PLInit: created $trashlog"; }
+
+    # --- sentinel playlist: the dst picker lists it with find, so it has to
+    #     be a real file or the delete option is simply absent ---------------
+    _PLM_ensure_playlist "$PLM_PlayLists_Folder/$PLM_TRASH_PLAYLIST"
+
+    # --- tag index (database) (only needed for PlayArtist) ----------------------
+    local dbdir
+    dbdir=$(dirname -- "$PLM_MUSIC_DB")
+    [ -d "$dbdir" ] || mkdir -p "$dbdir" 2>/dev/null
+
+    return "$rc"
+}
+
+PLQuit()
+{
+tmux kill-session -t "$PLM_tmux_session"
+killall qmmp
+kill $PLM_STATUS_LOGGER_BACKGROUND_PID 
+}
+ 
+# todo these can go?
+PlayNext()
+{
+nohup qmmp --next > /dev/null 2>&1 &  
+}
+PlayPrev()
+{
+nohup qmmp --previous > /dev/null 2>&1 & 
+}
+
+
+PlayStop()
+{
+    killall qmmp
+}
+
+# TODO clear out all in duplicates with PLClearDupes
+
+addPlaylists(){
+    # TODO
+    # prompt 
+    # export
+    echo none
+}
+
+
+addLib(){
+    # TODO
+    # prompt
+    # export
+    echo none
+}
+
+
+
+ 
+PLClearDupes ()
+{
+    sed -i '2,$d' "$PLM_PlayLists_Folder/$PLM_Duplicates_File$PLM_M3U_EXT"
+}
+
+PLClean()
+{
+
+    PLClearDupes 
+    # TODO! this is probably tested, but check for dir to run in  
+    # TODO! Permadelete cleanup:
+        PLM_DELETE_QUEUE="TBD" 
+        # delete from file path
+            #  for lines i+1
+            # Delete m3u @ i,i+1
+    # Delete all occurences in playlists? 
+
+    temp_file=$(mktemp) 
+    # Process the file line by line
+    line_num=0 
+    skip_next=false # check next line exists
+        
+    # Replace the original file with our processed version
+    mv "$temp_file" "file.m3u" 
+    while IFS= read -r line; do # some parsing
+        ((line_num++))
+        
+        # If we need to skip this line (because it was processed in previous iteration)
+        if $skip_next; then
+            skip_next=false
+            continue
+        fi
+        
+        # Read the next line (file path)
+        next_line=$(sed -n "$((line_num+1))p" file.m3u)
+        
+        # If there is a next line
+        if [ -n "$next_line" ]; then
+            # Remove the file pointed by the next line
+            echo "Removing file: $next_line"
+            rm -f "$next_line"
+            
+            # Skip the next line when continuing the loop
+            skip_next=true
+        else
+            # If no next line, keep the current line in the output
+            echo "$line" >> "$temp_file"
+        fi
+        
+    done < "$PLM_DELETE_QUEUE"
+
+    echo "Processing complete." 
+} 
+PLVisitMountedLibrary ()
+{
+    cd -P $PLM_PlayLists_Folder
+}
+
+# shellcheck source=PLM_helpers.sh
+source "$PLM_PATH/PLM_helpers.sh"
+# shellcheck source=PLM_manager.sh
+source "$PLM_PATH/PLM_manager.sh"
+
+# derive PLM_PlayLists_Folder / PLM_MUSIC_DB from the root
+_PLM_set_library "$PLM_Library_Folder" --quiet --no-verify
+ 
+# ---------------------------------------------------------------------------
+# PLM — main function
+# ---------------------------------------------------------------------------
+PLM() {
+    local activePlaylistFile
+    activePlaylistFile=$(cat /tmp/qmmp_activePLaylist)
+ 
+    if pgrep -x "qmmp" >/dev/null; then
+        local INITIAL_QUERY
+        local title artist
+        title=$(qmmp --status 2>/dev/null | grep "TITLE" \
+            | sed "s/'/.*/g" | sed 's/(.*)//g' \
+            | awk -F"= " '{print $2}')
+        artist=$(qmmp --status 2>/dev/null | grep -iv "ALBUMARTIST" \
+            | grep -i "ARTIST" \
+            | sed "s/'/.*/g" | sed "s/;/\.\*/g" | sed 's/(.*)//g' \
+            | awk -F"= " '{print $2}')
+        INITIAL_QUERY=$(echo "$artist.*$title" | sed 's/ /\.\*/g')
+    else
+        echo "no query possible! Music Player not running and no input provided"
+        return 1
+    fi
+ 
+if [[ -z $1 ]] && pgrep -x "qmmp" >/dev/null; then # no input and qmmp running
+    fullstatus=$(qmmp --status 2>/dev/null | sed -n -e '2p' -e '3p' -e '4p' -e '5p')
+    title=$( qmmp --status 2>/dev/null | grep "TITLE"  | sed "s/'/.*/g" | sed 's/(.*)//g' | awk -F"= " '{print $2}' ) 
+    artist=$( qmmp --status  2>/dev/null | grep -iv "ARTIST" | sed "s/'/.*/g"  | sed "s/;/\.\*/g" | sed 's/(.*)//g'   | awk -F"= " '{print $2}' ) 
+    INITIAL_QUERY=$(echo "$artist.*$title" | sed 's/ /\.\*/g')
+elif [[ -n $1 ]]; then # input exists
+    PLManager ".*" $1  | tee -a $PLM_LOG_FILE 
+    return 0
+else # no input and no qmmp running 
+    echo "no query possible! Music Player not running and no input provided"
+    return 1
+fi
+ 
+
+    (
+    cd -P $PLM_PlayLists_Folder  # TODO PLM_PLAYLIST_FOLDER
+    while ! timeout 1 qmmp --status >/dev/null 2>&1; do 
+        sleep 2
+    done
+
+    touch /tmp/fzf_pid 
+    while true; do
+       # echo "grepped new file with title $NEW_TRACK" # debug 
+       status=$(timeout 0.1 qmmp --status 2>/dev/null)
+        if [[ -z "$status" ]]; then # BUG!! still
+            continue
+        fi 
+        if [[ "$status" == "STOP" ]]; then  # TODO!! put a message here : what happens?
+            ReselectPlayingList 
+        fi
+
+        # spawn inner PLManager that is waited until completion
+        touch "$MANAGING_FLAG"
+        while [[ -f "$MANAGING_FLAG" ]] ; do
+            PLManager "$(Artist2Pattern)" "$(Track2Pattern)" "$(Album2Pattern)" "$(cat /tmp/qmmp_activePLaylist)" # tee here is unreliable - called from fzf is weird
+        done 
+        
+    done
+    )
+}
+_PLM_autocomplete() {
+    local cur=${COMP_WORDS[COMP_CWORD]}
+    COMPREPLY=( $(rg --files "$PLM_Library_Folder" 2>/dev/null | grep -i -- "$cur") )
+}
+complete -F _PLM_autocomplete PLM
+ 
+ 
+
+
+PLayList() # choose a reasonable playlist (or several), then invoke PLM
+{
+# continue if player is playing
+
+local selectedPlaylists=()
+
+PLInit || return 1 # only panic if something is missing
+
+if [ -z "$1" ]; then
+    export -f PLQuit
+    # -------------------- core: Playlist selector -------------------------- #
+    playlist_list=$(
+                find $PLM_PlayLists_Folder -path '**/.git' -prune -o -type f -name "*$PLM_FIXED_PLAYLIST_PREFIX*" -print
+                find $PLM_PlayLists_Folder -path '**/.git' -prune -o -type f -name "*$PLM_TEST_PLAYLIST_PREFIX*" -print
+               )
+    local selection
+    # Rows carry the same colour scheme as PLManager's search results
+    # ($PLM_COL_* in PLM_env): Test playlists orange, the OK_/fixed keepers
+    # green.  --ansi is what makes fzf render them AND strip them back out of
+    # what it returns, so $selection stays a plain path.
+    selection=$( find $PLM_PlayLists_Folder -path '**/.git' -prune -o -type f -print \
+        | _PLM_colour_playlists | \
+        fzf --multi --ansi \
+            --header 'Tab: mark several playlists to play them concatenated' \
+            --bind "ctrl-q:execute(PLQuit )" \
+            --bind 'esc:ignore' 
+              # --bind "alt-r:execute( 
+              # tempfile=\$(mktemp) && 
+              # echo {} > \$tempfile &&
+              # $EDITOR \$tempfile &&
+              # newname=\$(cat \$tempfile) &&
+              # mv -- {} \"\$newname\"
+              #   )+reload(find $PLM_PlayLists_Folder -path '**/.git' -prune -o -type f -print )" \
+              #   --bind "change:reload: \
+              #   (find $PLM_PlayLists_Folder -path '**/.git' -prune -o -type f -print \
+              #   | rg --no-heading --color=never -i {q} \
+              #   | awk '/OK/ {print \"0_\"\$0} !/OK/ {print \"1_\"\$0}' \
+              #   | sort -t'_' -k1,1 \
+              #   | sed 's/^[01]_//')" 
+                    # --bind "change:reload:   (find $PLM_PlayLists_Folder -path '**/.git' -prune -o -type f -print | rg --no-heading --color=never -i {q})"
+    )
+    # Tab-marking several m3us in the picker plays them as one queue: they are
+    # merged into $PLM_CONCAT_PLAYLIST (see _PLM_concat_playlists) and that tmp
+    # file becomes the active playlist. The originals are untouched — PLManager
+    # still searches $PLM_PlayLists_Folder
+    
+    if [ -z "$selection" ]; then
+        echo "No playlist selected."
+        return 1
+    fi
+    mapfile -t selectedPlaylists <<< "$selection"
+else
+    selectedPlaylists=( "$@" )   # PLayList a.m3u [b.m3u …] — several args concatenate too
+fi
+
+if [ "${#selectedPlaylists[@]}" -gt 1 ]; then # if multi playlists selected
+    activePlaylistFile="$PLM_CONCAT_PLAYLIST"
+    _PLM_concat_playlists "$activePlaylistFile" "${selectedPlaylists[@]}" || return 1
+    echo "Concatenated ${#selectedPlaylists[@]} playlists ($(grep -c '^[^#]' "$activePlaylistFile") tracks) -> $activePlaylistFile"
+else # if single playlist == 1 active
+    activePlaylistFile="${selectedPlaylists[0]}" # 
+fi
+basename "$activePlaylistFile" > /tmp/qmmp_activePLaylist
+
+# delete if playlist empty — only ever prunes a REAL playlist, never the merge
+if [ "${#selectedPlaylists[@]}" -eq 1 ]; then
+    # Count lines in the file
+    lineCount=$(wc -l < "$activePlaylistFile")
+
+    # Check if file has exactly 1 line
+        # BUG!! end of m3us
+        # after deleting playlist PL is stuck
+        # not repeating
+        # after last track, should exit out gracefully
+    if [ "$lineCount" -eq 1 ]; then
+        # Check if the content of that line is "#EXTM3U"
+        if [ "$(cat "$activePlaylistFile" | tr -d '\r' | tr -d '\n')" == "$PLM_M3U_HEADER" ]; then
+            # Delete the file
+            rm "$activePlaylistFile"
+            echo "File $activePlaylistFile contained only '#EXTM3U' and was deleted."
+            return 0
+        fi
+    fi
+fi
+
+QT_QPA_PLATFORM=offscreen qmmp $activePlaylistFile >/dev/null 2>&1 & disown
+QT_QPA_PLATFORM=offscreen qmmp --next >/dev/null 2>&1 & disown  # next track for random
+ 
+PLM 
+}
+# alias PL='PLayList'
+_qmmp_autocomplete() {
+        local cur=${COMP_WORDS[COMP_CWORD]}
+            COMPREPLY=( $(compgen -f $PLM_PlayLists_Folder"/$cur") )
+}
+complete -F _qmmp_autocomplete playList  
+
+
+# PlayList with tmux split. Scheme:
+# Logs
+# ---
+# PLM (wrapped by PLayList)
+PlayList_mux() 
+{
+    # --- Configuration ---
+    # Specify the log file you want to tail
+    LOG_FILE=$PLM_LOG_FILE 
+    rm $PLM_LOG_FILE 2>/dev/null 
+    touch $PLM_LOG_FILE 
+    touch $PLM_VIEW_FILE 
+
+        TMP_FILE="/tmp/plm_log_update.$$" # Temporary file for processing
+
+        # First, export monitorer script to tmp
+        cp "$PLM_PATH/PLM_monitorer.sh" /tmp/PLM_monitorer.sh
+
+        chmod +x  "$PLM_PATH/PLM_tag_editor.sh"
+        chmod +x  /tmp/PLM_monitorer.sh
+ 
+        # - first line continuously report song report
+        # - fullscreen for tail (upper split) tracking of log
+        #   size needs to be line instead of %
+        # - report new song
+        # - elegant exit
+
+
+    # Write access check    
+        local dir
+        for dir in "$PLM_Library_Folder" "$PLM_PlayLists_Folder"; do
+          [ -z "$dir" ] && continue
+          [ -d "$dir" ] || continue          # PLInit creates the playlists folder
+          _PLM_probe_writable "$dir" && continue
+          _PLM_report_unwritable "$dir"
+          return 1
+        done
+
+
+    FZF_INPUT_COMMAND="find . -type f" 
+    # Specify the desired percentage height for the TOP pane (e.g., 20 for 20%)
+    TOP_PANE_PERCENTAGE=20
+    # --- End Configuration ---
+
+    # Calculate the percentage height for the bottom pane
+    BOTTOM_PANE_PERCENTAGE=$((100 - $TOP_PANE_PERCENTAGE))
+
+    # Check if we are already inside a tmux session
+    if [ -z "$TMUX" ]; then
+
+        # TODO! init tmux also with bash
+        tmux new-session -d -s "$PLM_tmux_session"
+        # TODO! else, if tmux has 2 splits already , and in plm session, invoke inner PlayList
+    fi
+
+    for i in {1..10}; do
+        tmux has-session -t "$PLM_tmux_session" 2>/dev/null && break
+        sleep 0.1
+    done 
+
+    # 1. Split the current window vertically.
+    #    The '-p' flag specifies the percentage for the *new* (bottom) pane.
+    tmux split-window -v -l "$(( $(tput lines) + 2 ))" -t "$PLM_tmux_session" 
+    
+    # 2. Select the top pane.
+    tmux select-pane -U -t "$PLM_tmux_session" 
+
+    # 3. Send the command to tail the log file to the top pane.
+    #    Using printf '%q' ensures the filename is correctly quoted/escaped.
+    #    'C-m' simulates pressing Enter.
+    tmux send-keys -t "$PLM_tmux_session" "clear; tput rmam; /tmp/PLM_monitorer.sh" C-m 
+    PLM_STATUS_LOGGER_BACKGROUND_PID=$(cat /tmp/plm_logger.pid) 
+     
+ 
+    # 4. Select the bottom pane.
+    tmux select-pane -D -t "$PLM_tmux_session" 
+
+    # 5. Send the command to run fzf in the bottom pane.
+    tmux send-keys -t "$PLM_tmux_session" "PLayList" C-m # this is the manager / player!
+
+    # hand over control: enter
+    tmux attach -t "$PLM_tmux_session"
+} 
+alias PL='PlayList_mux'
+
+
+
+
+
+
+PLRenamePlaylist(){
+(cd -P $PLM_PlayLists_Folder
+output_file=$(find . -type f -name "*.m3u" | fzf )
+read -e -i "$output_file" -p "Enter new name: " new_file
+mv $output_file $new_file
+)
+}
+
+
+# PLMBuildIndex — (re)build the mp3 tag index that PlayArtist searches.
+# call PLM_indexer.py; the tag reading is done by mutagen there,
+# Always a full rewrite, 
+PLMBuildIndex() {
+    "$PLM_INDEXER" build --library "$PLM_Library_Folder" --db "$PLM_MUSIC_DB"
+}
+ 
+# PlayTrack — search the LIBRARY (not playlists) for matching tracks, dump the
+# selection to a tmp m3u, then play + manage it exactly like a playlist picked
+# in PLayList (delegates to PLayList so the PLM management loop runs identically).
+PlayTrack() {
+    local TITLE
+    if [ -n "$1" ]; then
+        TITLE="$1"
+    else
+        read -r -p "Enter track/artist to search in library: " TITLE
+    fi
+
+    
+    local lib_cmd="rg --files \"$PLM_Library_Folder\" 2>/dev/null | rg -i '$(_PLM_audio_regex)'" # find every audio file under the library folder. 
+
+    # fzf picker over the library, seeded with the typed query, Tab for multi-select
+    local SELECTED
+    SELECTED=$(eval "$lib_cmd" | \
+        fzf --multi \
+            --query "$TITLE" \
+            --prompt="Select track(s) [Tab=mark, Enter=play]: " \
+            --preview 'basename {}' \
+            --preview-window=up:1 \
+            --bind "ctrl-q:execute(PLQuit)")
+
+    if [ -z "$SELECTED" ]; then
+        echo "No track selected."
+        return 1
+    fi
+
+    # dump matched songs to a tmp m3u in /tmp
+    local TRACK_PLAYLIST="/tmp/qmmp_track_playlist.m3u"
+    {
+        echo "$PLM_M3U_HEADER"
+        printf '%s\n' "$SELECTED"
+    } > "$TRACK_PLAYLIST"
+
+    # play + manage as if it were a normal m3u selected from the library
+    PLayList "$TRACK_PLAYLIST"
+}
+
+# PlayArtist — pick ONE track, then play everything by whoever made it.
+#   1. fzf over the LIBRARY (same picker as PlayTrack, single selection)
+#   2. load that pick into qmmp so `qmmp --status` becomes the source of truth
+#      for its tags, exactly like the rest of PLM reads the current track
+#   3. take ALBUMARTIST from the status, falling back to ARTIST when the file
+#      carries no album-artist tag; if BOTH are null , error out
+#   4. collect every library file whose ALBUMARTIST *or* ARTIST matches, by
+#      querying the PLM_indexer.py tag index — case-insensitive substring, so
+#      "feat." and multi-artist fields ("A; B") still hit
+#   5. hand the assembled m3u to PLayList so the PLM management loop runs
+# NOTE (?) like PlayTrack, the tmp m3u holds bare paths (no #EXTINF partner), so it
+# deliberately does not satisfy the entry-pair invariant — PLManager's rg passes
+# search for "EXTINF.*" and simply never match it. # Works, but never reviewed
+PlayArtist() {
+    local QUERY
+    if [ -n "$1" ]; then
+        QUERY="$1"
+    else
+        read -r -p "Enter track/artist to search in library: " QUERY
+    fi
+
+    local lib_cmd="rg --files \"$PLM_Library_Folder\" 2>/dev/null | rg -i '$(_PLM_audio_regex)'" # library source: every audio file under the library folder . 
+
+    local SEED
+    SEED=$(eval "$lib_cmd" | \
+        fzf --no-multi \
+            --query "$QUERY" \
+            --prompt="Pick one track by the artist [Enter]: " \
+            --preview 'basename {}' \
+            --preview-window=up:1 \
+            --bind "ctrl-q:execute(PLQuit)")
+
+    if [ -z "$SEED" ]; then
+        echo "No track selected."
+        return 1
+    fi
+
+    # ── load the seed so qmmp reports ITS tags ───────────────────────────────
+    # remember what was playing, so we can tell the status actually turned over
+    # guard with pgrep: `qmmp --status` with no running instance does not fail,
+    # it STARTS one and blocks forever -- an unguarded call hangs PlayArtist here
+    local PREV_TITLE=""
+    pgrep -x qmmp >/dev/null 2>&1 && \
+        PREV_TITLE=$(timeout 1 qmmp --status 2>/dev/null | grep -m1 '^TITLE' | cut -d'=' -f2-)
+
+    QT_QPA_PLATFORM=offscreen qmmp "$SEED" >/dev/null 2>&1 & disown
+
+    local i TITLE=""
+    for i in {1..50}; do   # ~10s: qmmp cold-starts slower than it switches track
+        TITLE=$(timeout 1 qmmp --status 2>/dev/null | grep '^TITLE' | cut -d'=' -f2-)
+        [ -n "$TITLE" ] && [ "$TITLE" != "$PREV_TITLE" ] && break
+        sleep 0.2
+    done
+
+    # anchored greps keep ARTIST and ALBUMARTIST apart without a `grep -v`, and
+    # cut -f2- keeps tag values that themselves contain '=' intact (the
+    # `awk -F"= "` idiom used elsewhere in PLM truncates those)
+    local STATUS ALBUMARTIST ARTIST TARGET
+    STATUS=$(timeout 2 qmmp --status 2>/dev/null)
+    ALBUMARTIST=$(grep -m1 '^ALBUMARTIST' <<< "$STATUS" | cut -d'=' -f2- | sed 's/^ *//; s/ *$//')
+    ARTIST=$(grep -m1 '^ARTIST'           <<< "$STATUS" | cut -d'=' -f2- | sed 's/^ *//; s/ *$//')
+    TARGET="${ALBUMARTIST:-$ARTIST}"
+
+    # no artist tag at all -> nothing to search on. Do not fall back to guessing
+    # from the filename: that silently queues the wrong artist.
+    if [ -z "$TARGET" ]; then
+        echo "PlayArtist: no ARTIST or ALBUMARTIST for $(basename "$SEED") — aborting." >&2
+        return 1
+    fi
+    echo "Artist: $TARGET"
+
+    # ── gather every track by that artist from the tag index ─────────────────
+    if [ ! -s "$PLM_MUSIC_DB" ]; then
+        echo "No tag index yet — building it once (~30s)."
+        PLMBuildIndex || return 1
+    fi
+
+    local matches
+    matches=$("$PLM_INDEXER" artist-tracks --db "$PLM_MUSIC_DB" "$TARGET") || return 1
+    if [ -z "$matches" ]; then
+        echo "PlayArtist: nothing matched '$TARGET' (stale index? run PLMBuildIndex)." >&2
+        return 1
+    fi
+
+    # drop rows whose file has since been trashed/moved — the index is a snapshot
+    local ARTIST_PLAYLIST="/tmp/qmmp_artist_playlist.m3u"
+    {
+        echo "$PLM_M3U_HEADER"
+        while IFS= read -r track; do
+            [ -f "$track" ] && printf '%s\n' "$track"
+        done <<< "$matches"
+    } > "$ARTIST_PLAYLIST"
+
+    local count
+    count=$(( $(wc -l < "$ARTIST_PLAYLIST") - 1 ))
+    if [ "$count" -le 0 ]; then
+        echo "PlayArtist: every indexed track for '$TARGET' is missing on disk — run PLMBuildIndex." >&2
+        return 1
+    fi
+    echo "Queued $count track(s) by $TARGET"
+
+    # play + manage as if it were a normal m3u selected from the library
+    PLayList "$ARTIST_PLAYLIST"
+}
+
+# WARN not tested
+MakePlaylistFromFolder()
+{
+    # TODO remember 
+    echo "#EXTM3U" > playlist.m3u
+# find ./subfolder -type f \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.ogg" \) | while read -r track; do
+#     echo "#EXTINF:-1,$(basename "$track")" >> playlist.m3u
+#     echo "$track" >> playlist.m3u
+# done 
+}
+
+syncPlaylists(){
+    # TODO delete empty playlists
+
+    # TODO pull, add all, commit,  sync
+
+    # TODO parse path in delete playlist queue and rm 
+
+    echo none
+} 
+
+PLMTrashAllEntries() {
+    filesrc=$1
+
+    # Validate file exists
+    if [[ ! -f "$filesrc" ]]; then
+        echo "Error: playlist file '$filesrc' not found."
+        return 1
+    fi
+
+    # Read all lines into array
+    mapfile -t lines < "$filesrc"
+
+    local i=0
+    local total=${#lines[@]}
+    local header_skipped=false
+
+    # Skip the #EXTM3U header if present
+    if [[ "${lines[0]}" == "$PLM_M3U_HEADER" ]]; then
+        i=1
+        header_skipped=true
+    fi
+
+    while (( i < total )); do
+        local line="${lines[$i]}"
+
+        # Check if this line starts a pair (#EXTINF metadata + filepath)
+        if [[ "$line" == "#EXTINF:"* ]]; then
+            local meta_line="$line"
+            local meta_idx=$(( i + 1 ))   # 1-based line number for sed
+            local path_idx=$(( i + 2 ))
+
+            # Make sure the path line exists
+            if (( meta_idx < total )); then
+                local filepath="${lines[$meta_idx]}"
+                filepath=$(echo "$filepath" | sed 's|\\|/|g' | tr -d '\r')
+
+                echo "Deleting audio file: $filepath"
+
+                # Move file to trash
+                if [[ -f "$filepath" ]]; then
+                    mv "$filepath" "../$PLM_TRASH_FOLDER"
+                else
+                    echo "  Warning: file not found on disk, skipping move: $filepath"
+                fi
+
+                # Log basename to trash log
+                local basename_file
+                basename_file=$(basename "$filepath")
+                echo "$basename_file" >> "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
+
+                # Log the M3U entry pair to trash log
+                echo "$meta_line"                >> "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
+                echo "${lines[$meta_idx]}"       >> "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
+
+                i=$(( i + 2 ))  # advance past both lines of the pair
+            else
+                echo "  Warning: orphaned #EXTINF line at index $i, skipping."
+                i=$(( i + 1 ))
+            fi
+
+        elif [[ "$line" == "#"* || -z "$line" ]]; then
+            # Other comment or blank line — skip without trashing
+            i=$(( i + 1 ))
+
+        else
+            # Bare filepath with no preceding #EXTINF
+            local filepath
+            filepath=$(echo "$line" | sed 's|\\|/|g' | tr -d '\r')
+
+            echo "Deleting audio file (no metadata): $filepath"
+
+            if [[ -f "$filepath" ]]; then
+                mv "$filepath" "../$PLM_TRASH_FOLDER"
+            else
+                echo "  Warning: file not found on disk, skipping move: $filepath"
+            fi
+
+            local basename_file
+            basename_file=$(basename "$filepath")
+            echo "$basename_file" >> "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
+            echo "$line"         >> "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
+
+            i=$(( i + 1 ))
+        fi
+    done
+
+    # Wipe the playlist content, preserving the header if there was one
+    if [[ "$header_skipped" == true ]]; then
+        echo "$PLM_M3U_HEADER" > "$filesrc"
+    else
+        > "$filesrc"
+    fi
+
+    echo "Done. All entries removed from $filesrc."
+} 
+ 
+# FEAT VERY late advanced wishlist
+    # 

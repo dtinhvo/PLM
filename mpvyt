@@ -1,0 +1,37 @@
+export PLM_MPV_SOCKET="/tmp/mpvsocket"             # mpvadd, ListenMid/Hi/Lo, ListenSeek/Next/Prev/Stat
+ 
+listen()
+{
+nohup mpv "$1" --no-video --shuffle --ytdl-format=bestaudio > /dev/null 2>&1 &  
+}
+mpvadd(){
+echo '{ "command": [ "seek", "+'$(($1*60))'" ] }' | socat - "$PLM_MPV_SOCKET"
+}
+# ListenMid()
+# {
+# nohup mpv --ytdl-raw-options="yes-playlist=" "https://www.youtube.com/watch?v=D5n46dv8V-U&list=PL7OKw8rXgeXNn0_iT7apwpmucq9oMVgdg&pp=gAQBiAQB"  --no-video --shuffle --ytdl-format=bestaudio --input-ipc-server=$PLM_MPV_SOCKET > /dev/null 2>&1 &  
+# echo playlist-next | socat - "$PLM_MPV_SOCKET" > /dev/null 2>&1 &  
+# mpvadd 10
+# }
+
+ListenSeek(){
+echo '{ "command": [ "seek", "'$(($1*60))'" ] }' | socat - "$PLM_MPV_SOCKET" > /dev/null 2>&1 &  
+}
+ListenNext(){
+echo playlist-next | socat - "$PLM_MPV_SOCKET" > /dev/null 2>&1 &  
+mpvadd 7 
+}
+ListenPrev(){
+echo playlist-prev | socat - "$PLM_MPV_SOCKET" > /dev/null 2>&1 &  
+mpvadd 7
+}
+ListenStat() {
+echo '{ "command": ["get_property", "media-title"] }' | socat - "$PLM_MPV_SOCKET" | awk -F '"' '{print $4;}' | tee -a >(xclip -selection clipboard)
+}
+
+ListenStop()
+{
+    killall mpv > /dev/null 2>&1 &  
+}
+
+ 
