@@ -15,7 +15,7 @@ No database management is necessary (phew) EXCEPT if you want to use `PlayArtist
 > You keep a local library of music (mp3s). \
 > You don't believe in genres - You don't think default assigned genres are correct - You like to play multiple genres mixed in a session - You sometimes play `Jazz` but also sometimes play just `Bigband Jazz` but also sometimes play `Bossa Nova` with `Minimalist Piano`, etc. \
 > You can't find a playlist manager which does not include manually clicking dragging each file into each playlist. \
-> You play music as you do something else - and think man this track does not belong here. Now I have to click on the music player, click on the track and drag it to where i want, or no maybe i can press options and add to another playlist - wait I have 50+ playlist where even is `Ghibli Covers` ... \
+> You play music as you do something else - and think man this track does not belong here. Now I have to click on the music player, click on the track and drag it to where i want, or no maybe i can press options and add to another playlist - wait I have 50+ playlist where even is `Ghibli Covers` ... 
 > > You get the point
 
 ```
