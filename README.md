@@ -2,11 +2,9 @@
 
 ![Title](.demophotos/Title.jpg)
  
-A Bash + fzf + tmux front-end for managing a **m3u-based music library** that is played by a
-headless [qmmp](https://qmmp.ylsoftware.com/). One track plays, PLM shows you every
-playlist that track appears in, and you move / copy / trash it without leaving the keyboard.
+A Bash + fzf + tmux wrapper := terminal front-end (TUI) for managing a **m3u-based music library** that is played by a headless [qmmp](https://qmmp.ylsoftware.com/). One track plays, PLM shows you every playlist that track appears in, and you move / copy / trash it without leaving the keyboard.
 
-There is no build step and no runtime: the package is a set of Bash files you `source`,
+No build, no runtime: the package is a set of Bash files you `source`,
 
 No database management is necessary (phew) EXCEPT if you want to use `PlayArtist` (play all songs from an artist) in which case a database creation is the only way - done with a Python script for the tag index generation.
 
@@ -15,7 +13,7 @@ No database management is necessary (phew) EXCEPT if you want to use `PlayArtist
 > You keep a local library of music (mp3s). \
 > You don't believe in genres - You don't think default assigned genres are correct - You like to play multiple genres mixed in a session - You sometimes play `Jazz` but also sometimes play just `Bigband Jazz` but also sometimes play `Bossa Nova` with `Minimalist Piano`, etc. \
 > You can't find a playlist manager which does not include manually clicking dragging each file into each playlist. \
-> You play music as you do something else - and think man this track does not belong here. Now I have to click on the music player, click on the track and drag it to where i want, or no maybe i can press options and add to another playlist - wait I have 50+ playlist where even is `Ghibli Covers` ... 
+> You play music as you do something else - and think *man this track does not belong here. Now I have to click on the music player, click on the track and drag it to where i want, or no maybe i can press options and add to another playlist - wait I have 50+ playlist where even is `Ghibli Covers`* ... 
 > > You get the point
 
 ```
@@ -173,19 +171,13 @@ These controls are shared for `PlayArtist` and `PlayTrack` also.
 | `new.m3u` | **create**: prompts for a name (pre-filled `OK_`, `.m3u` appended if you leave it off), writes the `#EXTM3U` header, then uses the new playlist as the destination |
 | `Esc` | cancel the whole action |
 
-Only `OK_*` playlists are offered as real destinations — that is what makes `OK_` mean
-"curated keeper".
+Only `OK_*` playlists are offered as real destinations.
 
 ### Tag editor — `ctrl-e`
 
 > Screenshot: [Tag editor](#4-screenshots).
 
 Opens `$PLM_EDITOR` (`$EDITOR` on your system, or fallback to `nvim`) on three metadata entries. Save and quit and the values are written back to the mp3 with `id3v2`; the file path itself is untouched.
-
-### Monitor pane
-
-Read-only. Refreshes at 1 Hz for as long as the tmux session lives, and exits by itself on
-`PLQuit`. It shows the playing song, and track actions made by PLM affecting m3us.
 
 ---
 
@@ -197,37 +189,37 @@ Read-only. Refreshes at 1 Hz for as long as the tmux session lives, and exits by
 
 ![Hits across playlists](.demophotos/multipleHitHighlighting.png)
 
-*The source playlist first, then `Test_*`, then the keepers.*
+*The source playlist first, then `Test` playlists, then other playlists.*
 
 ![Album and parentheses highlighting](.demophotos/Highlighting_Album_paretheses.png)
 
-*The album is picked out in the header, parenthesised parts of a title in yellow.*
+*Album and parentheses are highlighted, help differentiating between different versions of a song - single, live, remix, etc. *
 
 </details>
 
 <details>
-<summary><b>Multi-select</b> — mark several entries, act on them at once</summary>
+<summary><b>Multi-select</b> — mark multiple (source entries or destination m3us), act on them at once</summary>
 
 ![Marking entries](.demophotos/multiselect0.png)
 
-*1 — `Tab` marks as many entries as you like.*
+*1 — select an (or multiple) entry for cut or copy*
 
 ![One destination prompt](.demophotos/multiselect1.png)
 
-*2 — one destination prompt covers the whole selection.*
+*2 — choose (1 or) multiple destination playlists. Because the entry selected is in a `Test` playlist, it gets cut from the source playlist and appended to destinations*
 
 ![Written to the destination](.demophotos/multiselect2.png)
 
-*3 — every marked entry is written in one pass.*
+*3 — Result: Track in multple destinations*
 
 </details>
 
 <details>
-<summary><b>Reselect</b> — <code>ctrl-r</code>, change what is playing</summary>
+<summary><b>(Re)select Playlists</b> </summary>
 
 ![Reselecting a playlist](.demophotos/re_selectPlaylists.png)
 
-*The pick becomes the new source playlist, not just the new queue.*
+*Selecting from available playlists to play. Coloring based on the character of the playlists - `Test` or `OK`*
 
 </details>
 
@@ -236,20 +228,20 @@ Read-only. Refreshes at 1 Hz for as long as the tmux session lives, and exits by
 
 ![Tag editor](.demophotos/metadataEdit.png)
 
-*Edit mp3 metadata with `id3v2`.*
+*Edit mp3 metadata of currently managing track with `id3v2`.*
 
 </details>
 
 <details>
-<summary><b>PlayArtist</b> — one seed track, the whole artist</summary>
+<summary><b>PlayArtist</b> — Play everything from artist</summary>
 
 ![PlayArtist seed picker](.demophotos/playArtist1.png)
 
-*1 — pick one track to name the artist.*
+*1 — pick one track belonging to the artist.*
 
 ![PlayArtist queue](.demophotos/playArtist2.png)
 
-*2 — everything by that artist, queued from the tag index.*
+*2 — everything by that artist appended to a tmp playlist and played.*
 
 </details>
 
@@ -262,25 +254,22 @@ Some important variables that may be relevant for your own env
 | Variable | Default | Meaning |
 |---|---|---|
 | `PLM_PATH` | the folder `PLM` was sourced from | where the sibling scripts live (`PLM_tag_editor.sh`, `PLM_monitorer.sh`, `PLM_indexer.py`) |
-| `PLM_Library_Folder` | `$HOME/Music/library` | where the audio lives. **The one variable that defers to the environment** (`${PLM_Library_Folder:-…}`), so `PLSetLibrary` survives a re-source |
-| `PLM_MEDIA_ROOTS` | `/media /media/$USER /run/media/$USER /mnt` | where `PLSetLibrary` looks for a removable library |
+| `PLM_Library_Folder` | `$HOME/Music/library` | where your audio library is.  |
+| `PLM_MEDIA_ROOTS` | `/media /media/$USER /run/media/$USER /mnt` | TBD where `PLSetLibrary` looks for a removable library |
 | `PLM_PlayLists_Folder_name` | `playlists` | m3u folder, relative to the library |
-| `PLM_PlayLists_Folder` | `$PLM_Library_Folder/$PLM_PlayLists_Folder_name` | absolute form; **CWD for everything below `PLM`**. Derived by `_PLM_set_library`, not assigned in the config block |
+| `PLM_PlayLists_Folder` | `$PLM_Library_Folder/$PLM_PlayLists_Folder_name` | Location of the playlist file. Preferably subfolder of the library. |
 | `PLM_AUDIO_EXTS` | `mp3 wav flac aac ogg m4a` | every extension the library and trash pickers accept |
-| `PLM_FIXED_PLAYLIST_PREFIX` | `OK` | prefix stable playlists (they names start with this). Playing on a test playlists will move into these playlists as final destination. |
-| `PLM_TEST_PLAYLIST_PREFIX` | `Test` | testing playlists. |
-| `PLM_PLAYLIST_SEPARATOR` | `_` | what sits between prefix and name in a real filename |
+| `PLM_FIXED_PLAYLIST_PREFIX` | `OK` | prefix of stable playlists   |
+| `PLM_TEST_PLAYLIST_PREFIX` | `Test` | prefix of testing playlists. |
+| `PLM_PLAYLIST_SEPARATOR` | `_` | what sits between prefix and name in a real filename. E.g. `OK_Jazz` |
 | `PLM_TRASH_PLAYLIST` | `rm.m3u` | destination sentinel meaning "trash it" |
 | `PLM_NEW_PLAYLIST` | `new.m3u` | destination sentinel meaning "make a new playlist" |
 | `PLM_TRASH_LOG` | `rm.log` | trash journal `RestoreEntry` reads |
 | `PLM_Ressurect_Playlist` | `Test_99_Resurrected.m3u` | restored entries are appended here |
 | `PLM_MUSIC_DB` | `$PLM_Library_Folder/$PLM_MUSIC_DB_NAME` | database (SQLite) tag index for  `PlayArtist`. Derived like the above; **always inside the library**, never a cache dir under `$HOME` — it describes that tree and must travel with it |
 | `PLM_MUSIC_DB_NAME` | `music_index.db` | the index's filename within the library |
-| `PLM_INDEXER` | next to `PLM_helpers.sh` | path to `PLM_indexer.py` |
-| `PLM_tmux_session` | `PLMmux` | tmux session name |
 | `PLM_logger_height` / `PLM_status_height` | `20` / `9` | tmux split sizing |
 | `PLM_STATUS_HEIGHT` | `27` | rendered height of the monitor's status block; the log tail gets `pane_height` minus this |
-| `MANAGING_FLAG` | `/tmp/PLM_managingFlag` | loop control between `PLM` and `PLManager` |
 
 
 ### Hardcoded
