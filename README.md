@@ -51,8 +51,6 @@ sudo apt install -y fzf ripgrep bat tmux id3v2 python3-mutagen psmisc git
 
 Alternatively, `python3 -m pip install mutagen`.
 
-Optional, for the standalone `mpvyt` helpers only: `sudo apt install -y mpv socat xclip`.
-
 - qmmp: Developed and tested against **2.3.0** 
 
 Compile newer versions for headless-only controls. 
