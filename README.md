@@ -2,7 +2,7 @@
 
 ![Title](.demophotos/Title.jpg)
  
-A Bash + fzf + tmux wrapper := terminal front-end (TUI) for managing a **m3u-based music library** that is played by a headless [qmmp](https://qmmp.ylsoftware.com/). One track plays, PLM shows you every playlist that track appears in, and you move / copy / trash it without leaving the keyboard.
+A fzf + tmux wrapper in bash := terminal front-end (TUI) for managing a **m3u-based music library** that is played by a headless [qmmp](https://qmmp.ylsoftware.com/). One track plays, PLM shows you every playlist that track appears in, and you move / copy / trash it without leaving the keyboard.
 
 No build, no runtime: the package is a set of Bash files you `source`,
 
