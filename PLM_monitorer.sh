@@ -41,7 +41,8 @@ time_to_seconds() {
 while  tmux has-session -t "$PLM_tmux_session" 2>/dev/null; do
 
     # Fetch raw qmmp status
-    status=$(qmmp --status 2>/dev/null | grep -v "Qt: Session management error")
+    # --no-start: a bare --status with no player STARTS one — e.g. right after PLQuit's killall
+    status=$(qmmp --no-start --status 2>/dev/null | grep -v "Qt: Session management error")
     echo "$status" > "$PLM_STATUS_TMPFILE"
 
     # --- Parse time / progress bar ---

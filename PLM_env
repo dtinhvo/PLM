@@ -1,7 +1,5 @@
 #!/bin/bash
  
-export PLM_STATUS_LOGGER_BACKGROUND_PID=-1
-
 export PLM_WINDOWS=0
  
 export PLM_LOG_FILE="/tmp/qmmp_status.log" 
@@ -9,12 +7,7 @@ export PLM_VIEW_FILE="/tmp/PLM_view.log"
 export PLM_qmmp_STATUS_FILE="/tmp/qmmpstatus.tmp"
 export PLM_TRIMMED_LOG_FILE="/tmp/old_PLM_log.tmp"
 export PLM_CONCAT_PLAYLIST="/tmp/qmmp_concat_playlist.m3u" # PLayList's multi-select merge target
-# basename of the playlist qmmp currently holds.  Written by whoever loads a
-# playlist (PLayList, ReselectPlayingList), read by PLM's loop and handed to
-# PLManager as $4 — which is what picks the source playlist out of the search
-# results, so a loader that forgets to write it leaves the whole screen on the
-# previous playlist.
-export PLM_ACTIVE_PLAYLIST_FILE="/tmp/qmmp_activePLaylist"
+export PLM_ACTIVE_PLAYLIST_FILE="/tmp/qmmp_activePLaylist" # full path of the playlist qmmp currently holds. (NOT counting demo mode)
 
 export PLM_tmux_session="PLMmux"
 # where this package lives — 
@@ -53,6 +46,9 @@ export PLM_COL_FIXED='\x1b[1;4;32m'        # green
 export PLM_COL_TEST_SRC='\x1b[1;4;7;33m'   # reverse bg
 export PLM_COL_FIXED_SRC='\x1b[1;4;7;32m'  # reverse bg 
 export PLM_COL_OFF='\x1b[0m'
+# current color = bright yellow
+export PLM_COL_DEMO='\x1b[1;93m'           # bright yellow - demo mode: PLManager preview banner + monitorer ON/OFF lines
+export PLM_COL_ACTIVE_PL='\x1b[1;93m'      # bright yellow - PLManager preview header: the active playlist name
 
 # Key-hint colours in the alt-h sidebar.  The colour says WHAT A KEY TOUCHES —
 # the four things PLM can act on — so a key that both moves an m3u entry and
@@ -74,6 +70,12 @@ export PLM_KEY_NEXT="alt-n"                        # skip to the next track in q
 export PLM_KEY_PREV="alt-b"                        # back to the previous track
 export PLM_KEY_PAUSE="alt-space"                   # pause / unpause (qmmp --play-pause)
 export PLM_KEY_EXPLORER="alt-E"                    # reveal the mp3 in the file manager
+export PLM_KEY_DEMO="ctrl-t"                       # demo the entry under the cursor; again / next / track end returns
+
+# PLDemo's snapshot (playlist, track, position) to return to — exists only during a demo
+export PLM_DEMO_STATE="/tmp/PLM_demo.state"
+# PLManager's fzf --listen socket: , for demo abort -> return
+export PLM_FZF_SOCK="/tmp/PLM_manager.sock"
 
 export PLM_KEY_HINTS="alt-h"                    # toggles the key-hints sidebar
 

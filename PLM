@@ -197,9 +197,8 @@ PLInit()
 
 PLQuit()
 {
+killall qmmp # avoid hanging qmmp
 tmux kill-session -t "$PLM_tmux_session"
-killall qmmp
-kill $PLM_STATUS_LOGGER_BACKGROUND_PID 
 }
 export -f PLQuit
  
@@ -438,7 +437,7 @@ if [ "${#selectedPlaylists[@]}" -gt 1 ]; then # if multi playlists selected
 else # if single playlist == 1 active
     activePlaylistFile="${selectedPlaylists[0]}" # 
 fi
-basename "$activePlaylistFile" > "$PLM_ACTIVE_PLAYLIST_FILE"
+realpath -m -- "$activePlaylistFile" > "$PLM_ACTIVE_PLAYLIST_FILE"
 
 # delete if playlist empty — only ever prunes a REAL playlist, never the merge
 if [ "${#selectedPlaylists[@]}" -eq 1 ]; then
@@ -461,6 +460,7 @@ if [ "${#selectedPlaylists[@]}" -eq 1 ]; then
     fi
 fi
 
+rm -f "$PLM_DEMO_STATE"   # a demo snapshot from an earlier session has nothing to return to
 QT_QPA_PLATFORM=offscreen qmmp $activePlaylistFile >/dev/null 2>&1 & disown
 QT_QPA_PLATFORM=offscreen qmmp --next >/dev/null 2>&1 & disown  # next track for random
  
@@ -553,7 +553,6 @@ PlayList_mux()
     #    Using printf '%q' ensures the filename is correctly quoted/escaped.
     #    'C-m' simulates pressing Enter.
     tmux send-keys -t "$PLM_tmux_session" "clear; tput rmam; /tmp/PLM_monitorer.sh" C-m 
-    PLM_STATUS_LOGGER_BACKGROUND_PID=$(cat /tmp/plm_logger.pid) 
      
  
     # 4. Select the bottom pane.

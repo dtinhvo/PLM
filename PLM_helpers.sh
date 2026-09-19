@@ -129,67 +129,30 @@ _PLM_file_manager() {
 
 # ---------------------------------------------------------------------------
 # OpenInExplorer — reveal the audio file of one m3u entry in the file manager
-#   Bound to $PLM_KEY_EXPLORER in PLManager.  Takes a raw fzf hit
-#   (playlist.m3u:LINE:#EXTINF:…) — the entry-pair invariant puts the path on
-#   LINE+1, so this is the same (filesrc, line1, line2) parse every other
-#   action does, via _parse_hit.
+#   Bound to $PLM_KEY_EXPLORER in PLManager.  
+#   Takes a raw fzf hit (playlist.m3u:LINE:#EXTINF:…) — path on LINE+1
 #
-#   Three things the path needs before a GUI app will accept it:
-#     * ANSI codes stripped — belt and braces.  fzf --ansi already hands {}
-#       back without them, but _iter_fzf_hits strips too and a hit that
-#       arrives from anywhere else must not silently become a bad filename.
-#     * `\` → `/` — this library's entries use Windows separators.
-#     * made absolute.  An m3u path is relative to the PLAYLIST, which is only
-#       the same as PLM's CWD while the playlist sits directly in
-#       $PLM_PlayLists_Folder; resolve against the playlist's own folder first
-#       and fall back to CWD, which is what TrashEntry assumes.
-#
-#   Launched with nohup … & so the file manager outlives fzf's execute()
-#   subshell — without it the window dies with the binding.
 # ---------------------------------------------------------------------------
 OpenInExplorer() {
-    local arg=$1 fm path dir
+    local arg=$1 fm path
     arg=$(printf '%s' "$arg" | sed 's/\x1b\[[0-9;]*m//g')
 
-    # Two kinds of caller.  A library picker (PlayArtist / PlayTrack) hands over
-    # the audio file itself; PLManager hands over a rg hit whose path is on the
-    # NEXT line of the m3u.  Told apart by asking the filesystem rather than by
-    # parsing: a hit ("list.m3u:42:#EXTINF…") is never an existing file.
-    if [ -f "$arg" ] && [ "${arg##*.}" != "${PLM_M3U_EXT#.}" ]; then
-        path=$arg
+    # Two kinds of caller.  
+    # (PlayArtist / PlayTrack) hands over the audio file itself; 
+    # PLManager hands over a rg hit -> pick next line.  
+    if [ -f "$arg" ] && [ "${arg##*.}" != "${PLM_M3U_EXT#.}" ]; then # if this arg is a file
+        path=$(readlink -f -- "$arg")
     else
-        _parse_hit "$arg" || return 1
-
-        path=$(awk "NR==$HIT_L2" "$HIT_FILE" | sed 's|\\|/|g' | tr -d '\r')
-        if [ -z "$path" ]; then
-            echo "[OpenInExplorer] no path on line $HIT_L2 of '$HIT_FILE'" >&2
-            return 1
-        fi
-
-        # An m3u path is relative to the PLAYLIST, which is only the same as
-        # PLM's CWD while the playlist sits directly in $PLM_PlayLists_Folder;
-        # resolve against the playlist's own folder first, then fall back to
-        # CWD, which is what TrashEntry assumes.
-        case "$path" in
-            /*) ;;
-            *)  dir=$(dirname -- "$HIT_FILE")
-                if [ -e "$dir/$path" ]; then path="$dir/$path"; fi ;;
-        esac
+        path=$(_PLM_entry_path "$arg") || return 1
     fi
-
-    if [ ! -e "$path" ]; then
-        echo "[OpenInExplorer] file not found: '$path'" >&2
-        return 1
-    fi
-    path=$(readlink -f -- "$path")
 
     if ! fm=$(_PLM_file_manager); then
         echo "[OpenInExplorer] no file manager found (set \$PLM_FILE_MANAGER)" >&2
         return 1
     fi
 
-    # --select opens the containing folder with the file highlighted; the
-    # others only understand a directory, so hand them the parent.
+    # --select opens the containing folder with the file highlighted; 
+    # the others only understand a directory, so hand them the parent.
     # nohup … & so the window outlives fzf's execute() subshell.
     case "$fm" in
         dolphin|nautilus|nemo|caja)
@@ -202,6 +165,172 @@ OpenInExplorer() {
     disown 2>/dev/null
 
     echo "[explorer] $fm: $path"
+}
+
+# ---------------------------------------------------------------------------
+# _PLM_entry_path <hit> —> find absolute path of the audio file of a m3u entry
+#   Takes a raw line from m3u (playlist.m3u:LINE:#EXTINF:…); 
+#       returns filepath defined on LINE+1.  
+# ---------------------------------------------------------------------------
+_PLM_entry_path() {
+    local path dir
+    _parse_hit "$1" || return 1
+
+    path=$(awk "NR==$HIT_L2" "$HIT_FILE" | sed 's|\\|/|g' | tr -d '\r')
+    if [ -z "$path" ]; then
+        echo "[_PLM_entry_path] no path on line $HIT_L2 of '$HIT_FILE'" >&2
+        return 1
+    fi
+
+    # resolve cases where playlists are nested in subfolders of $PLM_PlayLists_Folder
+    #   which is Undefined Behaviour!
+    case "$path" in
+        /*) ;;
+        *)  dir=$(dirname -- "$HIT_FILE")
+            if [ -e "$dir/$path" ]; then path="$dir/$path"; fi ;;
+    esac
+
+    if [ ! -e "$path" ]; then
+        echo "[_PLM_entry_path] file not found: '$path'" >&2
+        return 1
+    fi
+    readlink -f -- "$path"
+}
+
+# ---------------------------------------------------------------------------
+# PLDemo <hit> — play one entry temporarily for a listen, then return to previous playlist
+#   First press:
+#       snapshots the playlist, current track and position into $PLM_DEMO_STATE,
+#       plays the entry under the cursor,
+#           call _PLM_demo_watch to spawn pid watcher
+#   Pressing it again or $PLM_KEY_NEXT,  or or the demo track ending :
+#       call _PLM_demo_restore: return to prev playlist
+# TODO not reviewed 
+# ---------------------------------------------------------------------------
+PLDemo() {
+    [ -f "$PLM_DEMO_STATE" ] && { _PLM_demo_restore; return; }
+    pgrep -x qmmp >/dev/null || return 1
+
+    local q='env QT_QPA_PLATFORM=offscreen timeout 5 qmmp --no-start'
+    local track playlist plid label pos
+    track=$(_PLM_entry_path "$1") || return 1
+    playlist=$(cat "$PLM_ACTIVE_PLAYLIST_FILE" 2>/dev/null)
+    plid=$($q --pl-list 2>/dev/null | sed -n 's/^\([0-9]*\)\. .*\[\*\]$/\1/p')
+    # "2. Artist - Title - 4:26 [*]" -> "Artist - Title - 4:26"
+    label=$($q --pl-dump "$plid" 2>/dev/null | sed -n 's/^[0-9]*\. \(.*\) \[\*\]$/\1/p')
+    # "[playing] ===#--- 1:02/4:26" -> 62   (--seek takes whole seconds)
+    pos=$($q --status 2>/dev/null | sed -n '1s|.* \([0-9:]*\)/[0-9:]*$|\1|p' \
+        | awk -F: '{ s = 0; for (i = 1; i <= NF; i++) s = s * 60 + $i; print s }')
+
+    if [ ! -f "$playlist" ] || [ -z "$label" ]; then
+        echo "[demo] nothing to return to (playlist '$playlist', track '$label'), not demoing" >&2
+        return 1
+    fi
+
+    printf '%s\n' "$playlist" "$plid" "$label" "${pos:-0}" "$track" > "$PLM_DEMO_STATE"
+    # no --no-start on a load: qmmp takes the bare path as that option's argument
+    # and silently plays nothing.  pgrep above already guarantees it is running.
+    QT_QPA_PLATFORM=offscreen timeout 5 qmmp "$track" >/dev/null 2>&1
+    # logged before the wait, so a cancelled demo still gets its matching OFF line
+    _PLM_demo_log ">>> DEMO MODE ON  — $(basename -- "$track")   ($PLM_KEY_DEMO / $PLM_KEY_NEXT / track end)"  # : back to $label
+
+    # Return only once qmmp really plays it: the binding's +abort makes PLManager
+    # re-read the current track straight away, and it should find the demo.
+    local i ok=""
+    for i in {1..25}; do
+        $q --status 2>/dev/null | head -n1 | grep -q '^\[playing\]' \
+            && [ "$(readlink -f -- "$($q --nowplaying '%F' 2>/dev/null)")" = "$track" ] \
+            && { ok=1; break; }
+        sleep 0.2
+    done
+    if [ -z "$ok" ]; then   # unplayable: don't strand qmmp on a one-track playlist
+        echo "[demo] qmmp never started $(basename -- "$track"), going back"
+        _PLM_demo_restore
+        return 1
+    fi
+
+    nohup bash -c _PLM_demo_watch >/dev/null 2>&1 &
+}
+
+# _PLM_demo_log <text> — hl line on stdout, specialized for demo mode
+_PLM_demo_log() {
+    printf '%b%s%b\n' "$PLM_COL_DEMO" "$*" "$PLM_COL_OFF"
+}
+export -f _PLM_demo_log
+
+# ---------------------------------------------------------------------------
+# _PLM_demo_restore — end a demo: 
+#   reload current (was) playlist, same track, same time
+#   Claims $PLM_DEMO_STATE with an atomic mv first: $PLM_KEY_DEMO, $PLM_KEY_NEXT
+#       and the watcher can fire together, and exactly one of them may restore.
+#   The track is found again by its --pl-dump label, not its index: 
+#       PLM may have sed'ed entries out of that m3u since qmmp loaded it, shifting every index.
+# ---------------------------------------------------------------------------
+_PLM_demo_restore() {
+    local claim="$PLM_DEMO_STATE.$$" playlist plid label pos track n="" i
+    mv -- "$PLM_DEMO_STATE" "$claim" 2>/dev/null || return 0
+    { read -r playlist; read -r plid; read -r label; read -r pos; read -r track; } < "$claim"
+    rm -f -- "$claim"
+    pgrep -x qmmp >/dev/null || return 1
+
+    local q='env QT_QPA_PLATFORM=offscreen timeout 5 qmmp --no-start'
+    # clear first so the dump can't still be listing the demo track — often the
+    # very same song (auditioning a duplicate), which would match the label
+    $q --pl-clear "$plid" >/dev/null 2>&1
+    QT_QPA_PLATFORM=offscreen timeout 5 qmmp "$playlist" >/dev/null 2>&1   # bare path first, no --no-start: see PLDemo
+
+    for i in {1..50}; do   # qmmp loads the m3u asynchronously
+        n=$($q --pl-dump "$plid" 2>/dev/null | sed 's/^[0-9]*\. //; s/ \[\*\]$//' \
+            | grep -m1 -nFx -- "$label" | cut -d: -f1)
+        [ -n "$n" ] && break
+        sleep 0.2
+    done
+
+    if [ -z "$n" ]; then   # the track left that m3u meanwhile (moved / trashed)
+        $q --pl-play "$plid" 1 >/dev/null 2>&1
+        $q --next >/dev/null 2>&1
+        _PLM_demo_log "<<< DEMO MODE OFF — '$label' is no longer in $(basename -- "$playlist"), resumed it at random"
+        return 0
+    fi
+
+    $q --pl-play "$plid" "$n" >/dev/null 2>&1
+    if [ "${pos:-0}" -gt 0 ]; then
+        for i in {1..25}; do   # a seek only lands once the track is playing
+            $q --status 2>/dev/null | head -n1 | grep -q '^\[playing\]' && break
+            sleep 0.2
+        done
+        $q --seek "$pos" >/dev/null 2>&1
+    fi
+    _PLM_demo_log "<<< DEMO MODE OFF — back to: $label @ ${pos}s" # $(basename -- "$playlist")
+}
+
+# ---------------------------------------------------------------------------
+# _PLM_demo_watch — background poll (1 Hz) watcher 
+#       ends a demo whose track ended
+#   Runs until the snapshot it was started for is gone or replaced, or qmmp dies.  
+#   Implementation TBD
+#   TODO demo a single track will never "take over"
+#       remove the possibility of multi fzf for demo mode
+#   WARN : unreliable
+# ---------------------------------------------------------------------------
+_PLM_demo_watch() {
+    local snap track
+    snap=$(cat "$PLM_DEMO_STATE" 2>/dev/null) || return
+    track=$(sed -n 5p <<< "$snap")
+
+    # snapshot re-checked AFTER the sleep: a ctrl-t / next restore in that second
+    # must end the watch, not read as "another track took over"
+    while sleep 1; [ "$(cat "$PLM_DEMO_STATE" 2>/dev/null)" = "$snap" ] && pgrep -x qmmp >/dev/null; do
+        case "$(timeout 2 qmmp --no-start --status 2>/dev/null | head -n1)" in
+            '[playing]'*|'[paused]'*|'[buffering]'*)
+                [ "$(readlink -f -- "$(timeout 2 qmmp --no-start --nowplaying '%F' 2>/dev/null)")" = "$track" ] && continue
+                rm -f -- "$PLM_DEMO_STATE"
+                _PLM_demo_log "<<< DEMO MODE OFF — another track took over the player, demo dropped" >> "$PLM_LOG_FILE" ;;
+            *)  _PLM_demo_restore >> "$PLM_LOG_FILE" 2>&1 ;;   # the demo track ended
+        esac
+        curl -s -m 2 --unix-socket "$PLM_FZF_SOCK" -XPOST http://localhost -d abort >/dev/null 2>&1
+        return
+    done
 }
 
 # ---------------------------------------------------------------------------
@@ -351,9 +480,11 @@ _PLM_render_hints() {
 "  ${kpl}${PLM_KEY_DELETE}${o}  drop the entry (file kept)" \
 "  ${kmp}${PLM_KEY_TAGS}${o}  edit tags" \
 "  ${kmp}${PLM_KEY_EXPLORER}${o}   show file in explorer" \
-"  ${kqm}${PLM_KEY_NEXT}${o}   next track" \
+"  ${kqm}${PLM_KEY_NEXT}${o}   next track / end the demo" \
 "  ${kqm}${PLM_KEY_PREV}${o}   previous track" \
 "  ${kqm}${PLM_KEY_PAUSE}${o} pause / unpause" \
+"  ${kqm}${PLM_KEY_DEMO}${o}  demo the entry, again:" \
+"          back to the playing track" \
 "  ${kqm}${PLM_KEY_RESELECT}${o}  reselect the playlist" \
 "  ${kui}${PLM_KEY_QUIT}${o}  quit PLM + qmmp" \
 "  ${kui}esc${o}     reopen on this track" \
@@ -1055,6 +1186,10 @@ export -f _PLM_ensure_playlist
 export -f _PLM_audio_regex
 export -f _PLM_file_manager
 export -f OpenInExplorer
+export -f _PLM_entry_path
+export -f PLDemo
+export -f _PLM_demo_restore
+export -f _PLM_demo_watch
 export -f _PLM_render_hints
 export -f _PLM_picker_binds
 export -f _PLM_colour_playlists

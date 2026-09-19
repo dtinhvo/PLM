@@ -40,13 +40,14 @@ PL                        tmux session
 | `id3v2` | the `ctrl-e` tag editor | any |
 | `python3` + `mutagen` | `PLM_indexer.py` tag index (only `PlayArtist` needs it) | any |
 | `psmisc` | `killall qmmp` on quit | any |
+| `curl` | demo mode: redraw the manager when a demo track ends | any |
 
 ### Dependencies installation
 
 - Everything except qmmp
 
 ```bash
-sudo apt install -y fzf ripgrep bat tmux id3v2 python3-mutagen psmisc git
+sudo apt install -y fzf ripgrep bat tmux id3v2 python3-mutagen psmisc curl git
 ```
 
 Alternatively, `python3 -m pip install mutagen`.
@@ -147,8 +148,9 @@ Opens fresh for each track, pre-queried with the playing artist + title, and lis
 | `ctrl-d` | remove the entry from this playlist only — **the audio file is not touched** |
 | `ctrl-e` | edit TITLE / ARTIST / ALBUM tags of the highlighted track |
 | `ctrl-r` | reselect: pick and play a different playlist |
-| `alt-n` / `alt-b` | play next / previous track |
+| `alt-n` / `alt-b` | play next / previous track (`alt-n` in demo mode: go back) |
 | `alt-space` | pause / unpause (`qmmp --play-pause`) |
+| `ctrl-t` | **demo**: play the highlighted entry now; `ctrl-t` again goes back (see [Demo mode](#demo-mode--ctrl-t)) |
 | `alt-E` (shift-alt-e) | reveal the audio file in the graphical file manager |
 | `ctrl-q` | quit everything |
 | `alt-h` | toggle the key-hints sidebar (see below) |
@@ -176,6 +178,12 @@ Only `OK_*` playlists are offered as real destinations.
 > Screenshot: [Tag editor](#4-screenshots).
 
 Opens `$PLM_EDITOR` (`$EDITOR` on your system, or fallback to `nvim`) on three metadata entries. Save and quit and the values are written back to the mp3 with `id3v2`; the file path itself is untouched.
+
+### Demo mode — `ctrl-t`
+
+> Screenshot: [Demo mode](#4-screenshots).
+
+Listen to another entry (e.g. a duplicate) without losing your place. `ctrl-t` plays the highlighted entry and the manager switches to it, with a yellow `DEMO MODE` banner in the preview. `ctrl-t` again, `alt-n`, or the track ending reloads the previous playlist at the same track and position. The monitor logs a yellow `DEMO MODE ON` / `OFF` line for each.
 
 ---
 
@@ -240,6 +248,13 @@ Opens `$PLM_EDITOR` (`$EDITOR` on your system, or fallback to `nvim`) on three m
 ![PlayArtist queue](.demophotos/playArtist2.png)
 
 *2 — everything by that artist appended to a tmp playlist and played.*
+
+</details>
+
+<details>
+<summary><b>Demo mode</b> — <code>ctrl-t</code></summary>
+
+TBD
 
 </details>
 
@@ -327,16 +342,41 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
 
 ## 8. TODO
 
+### Bugs
+- [ ] qmmp next issued from outside of PLM cannot terminate session (endless loop)
+- [ ] Tracks in ./rm or trash does not show up in PLMmanager, even though no other hits available. 
+- [ ] Revive pipe not tested
 
+ 
 ### Features
 
+#### Playing
+- [ ] PLM control volume
+#### File modification
+##### m3u
+- [ ] Revive mode to peek at trash to revive, similar to demo mode
+- [ ] TBD reverting trashing action needs to be easier: log available from monitorer
+
+##### mp3
 - [ ] In-place audio modification with `ffmpeg`; `mp3gain`/`loudgain`
     - [ ] volume levelling
     - [ ] trim
+
+#### Monitoring  
+- [ ] Trashing says deleting is misleading
+- [ ] Actions on files needs visual delimiter / coloring  
+
+#### Portability
 - [ ] Remote storage of the library (e.g.) phone
     - [ ] Not tested
         - [ ] init
+        - [ ] Play, I/O
 - [ ] Windows Compat
+ 
+### Documentation 
+
+- [ ] representative video for operations
+
 
 ### Not Implemented
 

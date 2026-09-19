@@ -108,10 +108,7 @@ Album2Pattern() {
 # ---------------------------------------------------------------------------
 ReselectPlayingList() {
     local activePlaylistFile
-    # Same row colouring as the PLayList picker and PLManager's own results
-    # (see $PLM_COL_* in PLM_env).  Runs inside fzf's become() subshell, which is
-    # why _PLM_colour_playlists is export -f'd.  --ansi both renders the codes and
-    # strips them from the return value, so qmmp still receives a plain path.
+    
     activePlaylistFile=$(find $PLM_PlayLists_Folder \
             -path '**/.git' -prune -o -type f -print \
         | _PLM_colour_playlists | \
@@ -124,14 +121,16 @@ ReselectPlayingList() {
         return 0
     fi
 
+    # a new playlist ends any demo: nothing left to return to
+    [ -f "$PLM_DEMO_STATE" ] && { rm -f "$PLM_DEMO_STATE"
+        _PLM_demo_log "<<< DEMO MODE OFF — playlist reselected" >> "$PLM_LOG_FILE"; }
+
     QT_QPA_PLATFORM=offscreen qmmp "$activePlaylistFile" >/dev/null 2>&1
     QT_QPA_PLATFORM=offscreen qmmp --next >/dev/null 2>&1  # next track for random
 
-    # Publish the new source playlist.  PLM's loop re-reads this file for every
-    # PLManager round and passes it as $4, which is what RG_SRC globs, HL_SRC
-    # colours and the preview banner names — without this write the reselect
-    # changes what plays but every one of those stays on the OLD playlist.
-    basename "$activePlaylistFile" > "$PLM_ACTIVE_PLAYLIST_FILE"
+    # Publish the new source playlist.  
+    # PLM's loop re-reads this file, passes it as $4
+    realpath -m -- "$activePlaylistFile" > "$PLM_ACTIVE_PLAYLIST_FILE"
     echo "[reselect] $(basename "$activePlaylistFile")" >> "$PLM_LOG_FILE"
 }
 export -f ReselectPlayingList
@@ -146,8 +145,6 @@ export -f ReselectPlayingList
 # $4  source playlist filename
 # ---------------------------------------------------------------------------
 PLManager() {
-    echo "      ---***---       " | tee -a "$PLM_LOG_FILE"
-            # echo "Processing entry: $(qmmp --status 2>/dev/null | grep "ARTIST" | head -c -1) $(qmmp --status 2>/dev/null | grep "TITLE")" # debug
  
 
     # ── preview command ──────────────────────────────────────────────────
@@ -232,6 +229,7 @@ PLManager() {
     _PLM_render_hints > "$PLM_HINTS_FILE" 2>/dev/null
     local preview_window="$PLM_PREVIEW_WINDOW"
     [ -f "$PLM_HINTS_FLAG" ] && preview_window="$PLM_HINTS_WINDOW"
+
     # ─────────────────────────────────────────────────────────────────────
 
     local hit
@@ -246,7 +244,9 @@ PLManager() {
                             --bind "$PLM_KEY_DELETE:execute(MoveEntries -d {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
                             --bind "$PLM_KEY_MOVE:execute(MoveEntries -m {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
                             --bind "$PLM_KEY_COPY:execute(MoveEntries -c {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
-                            --bind "$PLM_KEY_NEXT:execute-silent(nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --next > /dev/null 2>&1 & echo \"[skip] next track\" >> $PLM_LOG_FILE; sleep 0.4)+abort" \
+                            --bind "$PLM_KEY_NEXT:execute-silent(if [ -f $PLM_DEMO_STATE ]; then _PLM_demo_restore >> $PLM_LOG_FILE 2>&1; else nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --next > /dev/null 2>&1 & echo \"[skip] next track\" >> $PLM_LOG_FILE; sleep 0.4; fi)+abort" \
+                            --bind "$PLM_KEY_DEMO:execute-silent(PLDemo {} >> $PLM_LOG_FILE 2>&1)+abort" \
+                            --listen "$PLM_FZF_SOCK" \
                             --bind "$PLM_KEY_PREV:execute-silent(nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --previous > /dev/null 2>&1 & echo \"[skip] previous track\" >> $PLM_LOG_FILE; sleep 0.4)+abort" \
                             --bind "$PLM_KEY_PAUSE:execute-silent(nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --play-pause > /dev/null 2>&1 & echo \"[play] pause/unpause\" >> $PLM_LOG_FILE)" \
                             --bind "$PLM_KEY_EXPLORER:execute-silent(OpenInExplorer {} >> $PLM_LOG_FILE 2>&1)" \
@@ -254,7 +254,7 @@ PLManager() {
                             --bind "$PLM_KEY_HINTS:transform:if [ -f \"\$PLM_HINTS_FLAG\" ]; then rm -f \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_PREVIEW_WINDOW)+refresh-preview\"; else touch \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_HINTS_WINDOW)+refresh-preview\"; fi" \
                             --bind "$PLM_KEY_RESELECT:become(ReselectPlayingList )+reload(fzf --ansi --disabled  --query "$1.*$2" )" \
                             --delimiter : \
-                            --preview "if [ -f \"\$PLM_HINTS_FLAG\" ]; then cat -- \"\$PLM_HINTS_FILE\"; else echo -e \" \n╭─ Processing selected playlist: \033[1;35m $preview_title \033[0m \n╰─ press $PLM_KEY_HINTS for control hints ────────────────────────────────────────\n \";$preview_cmd; fi" \
+                            --preview "if [ -f \"\$PLM_DEMO_STATE\" ]; then printf ' \n%b╭─ DEMO MODE — back to: %s %b\n%b╰─ $PLM_KEY_DEMO / $PLM_KEY_NEXT / track end returns there ────────────────────────────────────────%b\n \n' \"\$PLM_COL_DEMO\" \"\$(sed -n 3p \"\$PLM_DEMO_STATE\")\" \"\$PLM_COL_OFF\" \"\$PLM_COL_DEMO\" \"\$PLM_COL_OFF\";$preview_cmd; elif [ -f \"\$PLM_HINTS_FLAG\" ]; then cat -- \"\$PLM_HINTS_FILE\"; else echo -e \" \n╭─ Processing selected playlist: \$PLM_COL_ACTIVE_PL $preview_title \$PLM_COL_OFF \n╰─ press $PLM_KEY_HINTS for control hints ────────────────────────────────────────\n \";$preview_cmd; fi" \
                             --preview-window "$preview_window") # WARN even pipe outside here would not work | tee -a $PLM_LOG_FILE 
                             # the qmmp controls options are essential to retain randomness of the playlist 
                             
