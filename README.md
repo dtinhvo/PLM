@@ -128,7 +128,7 @@ Relevant commands exposed to bash env, that you may actually use
 | `PlayArtist [query]` | pick one track, play everything by that artist. Require an index built by `PLMBuildIndex`  |
 | `PLMBuildIndex` | rebuild the tag index. |
 | `PLMTrashAllEntries <playlist>` | bulk-trash (move to trash folder) every entry in one m3u |
-| `RestoreEntry` | pick a file out of `.trash` and put it back |
+| `RestoreEntry` | pick a file out of `.trash` and put it back  |
 
 
 ### Track manager — `PLManager` (the main screen)
@@ -142,7 +142,7 @@ Opens fresh for each track, pre-queried with the playing artist + title, and lis
 |---|---|
 | type | re-search all playlists (query is a regex) |
 | `Tab` | mark several hits as destination m3us |
-| `Enter` | **auto**: prompts for a ( m3u )destination - If current playlist is a `Test_*` playlist then *moves* the entry to destination, otherwise does a *copy* |
+| `Enter` | **auto**: prompts for a ( m3u )destination - If current playlist is a `Test_*` playlist then *moves* the entry to destination, otherwise does a *copy*. On a trashed entry: **resurrect** (see below) |
 | `ctrl-x` | **move**: prompts for a destination, writes the entry there, deletes it from the source |
 | `ctrl-c` | **copy**: prompts for a destination, source untouched |
 | `ctrl-d` | remove the entry from this playlist only — **the audio file is not touched** |
@@ -156,6 +156,8 @@ Opens fresh for each track, pre-queried with the playing artist + title, and lis
 | `alt-h` | toggle the key-hints sidebar (see below) |
 | `Esc` | refresh management (See below) |
 | `ctrl-g` | TBD |
+
+**Trashed entries.** When nothing in any playlist matches, the search falls back to the trash journal (`.trash/rm.log`), finding tracks that are trashed previously. The only action on such a hit is `Enter`: the file is moved back to its original path, its entry is appended to the resurrect playlist (`$PLM_Ressurect_Playlist`, see [Configuration](#5-configuration)), and the record is removed from `rm.log`. No other action is allowed on a hit from a trashed entry.
 
 Refreshing management of a file (`Esc`) exist because managing actions for a file do not terminate when the song is finished playing (prevent incomplete management actions). Hence, if another song is played, press `Esc` to start managing the currently playing song.
 
@@ -344,7 +346,6 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
 
 ### Bugs
 - [ ] qmmp next issued from outside of PLM cannot terminate session (endless loop)
-- [ ] Tracks in ./rm or trash does not show up in PLMmanager, even though no other hits available. 
 - [ ] Revive pipe not tested
 
  

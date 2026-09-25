@@ -45,6 +45,7 @@ export PLM_COL_TEST='\x1b[1;4;33m'         # yellow
 export PLM_COL_FIXED='\x1b[1;4;32m'        # green
 export PLM_COL_TEST_SRC='\x1b[1;4;7;33m'   # reverse bg
 export PLM_COL_FIXED_SRC='\x1b[1;4;7;32m'  # reverse bg 
+export PLM_COL_TRASH='\x1b[1;4;31m'        # red     - a trashed track (rm.log), Enter resurrects
 export PLM_COL_OFF='\x1b[0m'
 # current color = bright yellow
 export PLM_COL_DEMO='\x1b[1;93m'           # bright yellow - demo mode: PLManager preview banner + monitorer ON/OFF lines
