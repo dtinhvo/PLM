@@ -509,6 +509,8 @@ _PLM_render_hints() {
 "  ${grn}■${o} ${PLM_FIXED_PLAYLIST_PREFIX} playlists" \
 "  ${yelr} ${o}/${grnr} ${o} the source playlist," \
 "          currently playing"
+"  $(printf %b "$PLM_COL_TRASH")■${o} trashed (only shown when nothing" \
+"          else matches) — enter resurrects"
 }
 
 # ---------------------------------------------------------------------------
@@ -627,7 +629,6 @@ RestoreEntry() {
     local FILE_TO_RESTORE
     FILE_TO_RESTORE="$(_PLM_find_audio "../$PLM_TRASH_FOLDER" | fzf)"
     FILE_TO_RESTORE="$(basename "$FILE_TO_RESTORE")"
-    echo "$FILE_TO_RESTORE"
 
     if [ -z "$FILE_TO_RESTORE" ]; then
         echo "nothing selected to restore"
@@ -636,28 +637,36 @@ RestoreEntry() {
 
     # Locate the entry in the trash log (line0 = filename line)
     local line0
-    line0=$(grep -i -n -m1 -- "$FILE_TO_RESTORE" "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG" | cut -d: -f1)
-    echo "$line0"
-
+    line0=$(grep -Fxn -m1 -- "$FILE_TO_RESTORE" <(tr -d '\r' < "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG") | cut -d: -f1)
     if [ -z "$line0" ]; then
         echo "could not find the file entry $FILE_TO_RESTORE from rm.log"
         return
     fi
+    ResurrectEntry "$line0"
+}
 
-    local line1=$(( line0 + 1 ))
-    local line2=$(( line0 + 2 ))
+# ---------------------------------------------------------------------------
+# ResurrectEntry — undo one TrashEntry, given the line of its record in the log
+#   A record is 3 lines: basename / #EXTINF / original path.  The file goes back
+#   to its path, the 2-line m3u entry to $PLM_Ressurect_Playlist, the record out
+#   of the log.  Refuses a record whose basename doesn't match its path, so a
+#   bad line number can't move the wrong file or cut the wrong 3 log lines.
+# ---------------------------------------------------------------------------
+ResurrectEntry() {
+    local log="../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG" line0=$1 name dst
+    local line1=$(( line0 + 1 )) line2=$(( line0 + 2 ))
+    name=$(sed -n "${line0}p" "$log" | tr -d '\r')
+    dst=$(sed -n "${line2}p" "$log" | sed 's|\\|/|g' | tr -d '\r')
+    if (( line0 < 1 )) || [ -z "$name" ] || [ "$name" != "${dst##*/}" ]; then
+        echo "[ResurrectEntry] no trash record at $log:$line0" >&2
+        return 1
+    fi
+    mv -n -- "../$PLM_TRASH_FOLDER/$name" "$dst" || return 1
 
-    # Restore file to original path (line2 holds the path)
-    mv "../$PLM_TRASH_FOLDER/$FILE_TO_RESTORE" \
-        "$(sed -n "${line2}p" "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG")" # BUG last arg not working
-
-    # Append entry to resurrection playlist
-    # TODO which playlist? var PLM_RESTORED_PLAYLIST
     _PLM_ensure_playlist "$PLM_PlayLists_Folder/$PLM_Ressurect_Playlist"
-    sed -n "${line0},${line2}p" "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG" \
-        >> "$PLM_PlayLists_Folder/$PLM_Ressurect_Playlist"
-
-    sed -i "${line0},${line2}d" "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
+    sed -n "${line1},${line2}p" "$log" >> "$PLM_PlayLists_Folder/$PLM_Ressurect_Playlist"
+    sed -i "${line0},${line2}d" "$log"
+    echo "resurrected $name -> $dst (added to $PLM_Ressurect_Playlist)"
 }
 
 # ---------------------------------------------------------------------------
@@ -807,6 +816,17 @@ MoveEntry() {
 # N arguments: that is what keeps spaces/quotes in track titles from splitting)
 MoveEntries() {
     local flag=$1 hits_file=$2   # -m / -c / -a / -d / -D
+
+    # a trashed track (PLManager's rm.log fallback) has exactly one action:
+    # Enter resurrects it; every other key is refused
+    local first
+    first=$(sed 's/\x1b\[[0-9;]*m//g;q' -- "$hits_file")
+    if [ "${first%%:*}" = "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG" ]; then
+        [ "$flag" = -a ] || { echo "trashed track: only Enter (resurrect) applies"; return; }
+        _resurrect_worker() { _parse_hit "$1" && ResurrectEntry $(( HIT_L1 - 1 )); }
+        _iter_fzf_hits _resurrect_worker "$hits_file"
+        return
+    fi
 
     # -m, -c and -a need one interactive dst prompt up front, before the loop
     local output_files="" hint=""
@@ -1202,6 +1222,7 @@ export -f TrashEntry
 export -f TrashEntries
  
 export -f RestoreEntry
+export -f ResurrectEntry
 export -f SelectDstPlayList
 export -f MoveEntry 
 export -f MoveEntries  

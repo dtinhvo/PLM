@@ -192,14 +192,21 @@ PLManager() {
     # local HL_SRC='sed "s|^[^:]*'"$SRC_BASE"'|\\x1b[1;4m&\\x1b[0m|"' 
 
     # Priority 1 — the source playlist itself  (always exactly one hit)
-    local RG_SRC="$RG_PLM_PREFIX --glob $(basename "$4") -e '(?s)EXTINF.*{q}'"
+        local RG_SRC="$RG_PLM_PREFIX --glob $(basename "$4") -e '(?s)EXTINF.*{q}'"
     # Priority 2 — Test playlists (excluding $4 to avoid duplicate)
-    local RG_TEST="$RG_PLM_PREFIX --glob '*$PLM_TEST_PLAYLIST_PREFIX*' --glob '!$(basename "$4")' -e '(?s)EXTINF.*{q}'"
+        local RG_TEST="$RG_PLM_PREFIX --glob '*$PLM_TEST_PLAYLIST_PREFIX*' --glob '!$(basename "$4")' -e '(?s)EXTINF.*{q}'"
     # Priority 3 — the fixed/keeper playlists ($PLM_FIXED_PLAYLIST_PREFIX) and any
     # stray m3u that follows neither convention.  The glob stays a negation of
-    # Test so an oddly named playlist is still listed rather than silently dropped.
-    local RG_FIXED="$RG_PLM_PREFIX --glob '!*$PLM_TEST_PLAYLIST_PREFIX*' --glob '!$(basename "$4")' -e '(?s)EXTINF.*{q}'"
-    local reload_cmd
+    # Test so an oddly named playlist is still listed
+        local RG_FIXED="$RG_PLM_PREFIX --glob '!*$PLM_TEST_PLAYLIST_PREFIX*' --glob '!$(basename "$4")' -e '(?s)EXTINF.*{q}'"
+
+    # Priority 4: Fallback — no live hit anywhere: 
+    # search the trash log, so a trashed track can still be found (and resurrected).  
+        local RG_TRASH="$RG_PLM_PREFIX -H -e '(?s)EXTINF.*{q}' '../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG'" # -H because rg omits the filename when given one file, and _parse_hit needs it. 
+        local HL_TRASH=' '"$STRIP_ANSI"' \
+            | sed "s|^[^:]*|'"$PLM_COL_TRASH"'&'"$COL_OFF"'|" \
+            | '"$FMT_CONTENT"
+        local reload_cmd
 
     # if there is no 1 source playlist , ordering makes less sense, but Test still go first
     if [ -n "$MERGED" ]; then # no priority-1 pass: there is no source playlist
@@ -207,6 +214,8 @@ PLManager() {
     else
         reload_cmd="( $RG_SRC | $HL_SRC || true ; $RG_TEST | $HL_TEST || true ; $RG_FIXED | $HL_FIXED || true )" # combined reload string
     fi
+    # grep . passes the hits through and fails only when there were none
+    reload_cmd="$reload_cmd | grep . || ( $RG_TRASH | $HL_TRASH || true )"
 
 
     # ── rg reload helper (used in comments / future refactor) ────────────
