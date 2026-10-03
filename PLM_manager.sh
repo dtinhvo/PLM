@@ -149,10 +149,15 @@ PLManager() {
 
     # ── preview command ──────────────────────────────────────────────────
     local preview_cmd
-    preview_cmd=$(printf \
-        'batcat --color=always {1} --highlight-line {2} | sed "s/%s/\x1b[34m&\\x1b[0m/g" | sed "s/\(([^)]*)\)/\033[1;33m&\033[0m/g" || batcat --color=always {1} --highlight-line {2} | sed "s/%s/\x1b[34m&\\x1b[0m/g" | sed "s/\(([^)]*)\)/\033[1;33m&\033[0m/g"' \
-        "${3:-.^}" "${3:-.^}") # ? this line?
-    SRC_BASE=$(basename "$4" | _sanitize_pattern)
+    # bracket hl matching
+        export PLM_HDR_TITLE_BRACKETS PLM_HDR_ALBUM_BRACKETS
+        PLM_HDR_TITLE_BRACKETS=$(qmmp --status 2>/dev/null | grep '^TITLE = ' | grep -o '([^)]*)')
+        PLM_HDR_ALBUM_BRACKETS=$(qmmp --status 2>/dev/null | grep '^ALBUM = ' | grep -o '([^)]*)')
+        local FLIP_PREVIEW='_PLM_flip_header_brackets "$PLM_HDR_ALBUM_BRACKETS" "^ *$(( {r2} + 1 )) "'
+        preview_cmd=$(printf \
+            'batcat --color=always {1} --highlight-line {2} | sed "s/%s/\x1b[34m&\\x1b[0m/g" | sed "s/\(([^)]*)\)/\033[1;33m&\033[0m/g" | %s || batcat --color=always {1} --highlight-line {2} | sed "s/%s/\x1b[34m&\\x1b[0m/g" | sed "s/\(([^)]*)\)/\033[1;33m&\033[0m/g" | %s' \
+            "${3:-.^}" "$FLIP_PREVIEW" "${3:-.^}" "$FLIP_PREVIEW") # ? this line?
+        SRC_BASE=$(basename "$4" | _sanitize_pattern)
 
     # ── check if playlist is a merged one ─────────────────────────────────────────────
     local MERGED=""
@@ -172,7 +177,7 @@ PLManager() {
     esac
 
     local FMT_CONTENT='sed "s|\([^:]*:[^:]*:[^:]*:\)\(.*\)|\1\x1b[97m\2\x1b[0m|" \
-        | sed "s/(\([^)]*\))/\x1b[1;33m&\x1b[0m/g"' 
+        | sed "s/(\([^)]*\))/\x1b[1;33m&\x1b[0m/g" | _PLM_flip_header_brackets "$PLM_HDR_TITLE_BRACKETS"'
 
     local STRIP_ANSI='sed "s|\x1b\[[0-9;]*m||g"'
 
@@ -214,8 +219,8 @@ PLManager() {
     else
         reload_cmd="( $RG_SRC | $HL_SRC || true ; $RG_TEST | $HL_TEST || true ; $RG_FIXED | $HL_FIXED || true )" # combined reload string
     fi
-    # grep . passes the hits through and fails only when there were none
-    reload_cmd="$reload_cmd | grep . || ( $RG_TRASH | $HL_TRASH || true )"
+    # hits carrying a flipped (exact TITLE bracket) group jump to the top. fails only when there were none
+    reload_cmd="$reload_cmd | _PLM_exact_first | grep . || ( $RG_TRASH | $HL_TRASH || true )"
 
 
     # ── rg reload helper (used in comments / future refactor) ────────────
@@ -227,6 +232,7 @@ PLManager() {
     local header_text # header text for selector
     header_text=$(qmmp --status 2>/dev/null | sed -n -e '2p' -e '3p' -e '4p' -e '5p'  | sed 's/\(([^)]*)\)/'$'\033''[1;33m&'$'\033''[0m/g'  | awk '{ if (NR == 4) print "\033[34m" $0 "\033[0m"; else print $0 }')
     [ -n "$MERGED" ] && header_text=$'\033[1;35m'"$MERGED_NOTICE"$'\033[0m\n'"$header_text"
+    export PLM_HDR_TEXT="$header_text" # base for _PLM_focus_header, re-rendered per focused hit
 
     # preview banner: name the source playlist ($4), or  lack thereof.
     local preview_title="${4##*/}"
@@ -248,6 +254,7 @@ PLManager() {
                             --ignore-case \
                             --bind "start:reload:$reload_cmd" \
                             --bind "change:reload:$reload_cmd" \
+                            --bind "focus:transform-header:_PLM_focus_header {1} {2}" \
                             --bind "$PLM_KEY_QUIT:become(PLQuit )" \
                             --bind "$PLM_KEY_TAGS:execute($PLM_PATH/PLM_tag_editor.sh {} | tee -a $PLM_LOG_FILE)+reload($reload_cmd)" \
                             --bind "$PLM_KEY_DELETE:execute(MoveEntries -d {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \

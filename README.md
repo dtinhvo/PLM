@@ -203,6 +203,10 @@ Listen to another entry (e.g. a duplicate) without losing your place. `ctrl-t` p
 
 *Album and parentheses are highlighted, help differentiating between different versions of a song - single, live, remix, etc. *
 
+![Exact bracket matches](.demophotos/Highlighting_brackets_exact.png)
+
+TODO description
+
 </details>
 
 <details>
@@ -346,13 +350,14 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
 
 ### Bugs
 - [ ] qmmp next issued from outside of PLM cannot terminate session (endless loop)
-- [ ] Revive pipe not tested
-
+- [ ] monitor still bugged in height
+- [ ] weird number coloring of trashed (and resurrected) playlists in batcat
  
 ### Features
 
 #### Playing
 - [ ] PLM control volume
+- [ ] frequency logging, and play with frequency increasing or decreasing
 #### File modification
 ##### m3u
 - [ ] Revive mode to peek at trash to revive, similar to demo mode
@@ -362,6 +367,7 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
 - [ ] In-place audio modification with `ffmpeg`; `mp3gain`/`loudgain`
     - [ ] volume levelling
     - [ ] trim
+
 
 #### Monitoring  
 - [ ] Trashing says deleting is misleading
@@ -377,6 +383,7 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
 ### Documentation 
 
 - [ ] representative video for operations
+- [ ] esc to reset parsing track
 
 
 ### Not Implemented

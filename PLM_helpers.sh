@@ -369,6 +369,48 @@ _PLM_colour_playlists() {
 }
 
 # ---------------------------------------------------------------------------
+# _PLM_flip_header_brackets <brackets> [line-regex] — stdin filter.
+#   Callers: PLManager's hit lines (TITLE brackets), its preview's path line
+#   and its header (see _PLM_focus_header).
+_PLM_flip_header_brackets() {
+    [ -z "$1" ] && { cat; return; }
+    BR="$1" SEL="$2" awk 'BEGIN { n = split(ENVIRON["BR"], b, "\n"); sel = ENVIRON["SEL"]
+                 on = "\033[1;33m"; off = "\033[0m"; flip = "\033[1;7;33m" }
+         { if (sel != "") { t = $0; gsub(/\033\[[0-9;]*m/, "", t); if (t !~ sel) { print; next } }
+           for (i = 1; i <= n; i++) {
+               if (b[i] == "") continue
+               old = on b[i] off; out = ""; s = $0
+               while ((p = index(s, old)) > 0) {
+                   out = out substr(s, 1, p - 1) flip b[i] off
+                   s = substr(s, p + length(old))
+               }
+               $0 = out s
+           }
+           print }'
+}
+export -f _PLM_flip_header_brackets
+
+# _PLM_exact_first — stdin filter: 
+# lines holding a flipped bracket group
+#   (see _PLM_flip_header_brackets) first in manager hits, then the rest
+_PLM_exact_first() {
+    awk 'index($0, "\033[1;7;33m") { print; next } { rest[n++] = $0 }
+         END { for (i = 0; i < n; i++) print rest[i] }'
+}
+export -f _PLM_exact_first
+
+# _PLM_focus_header <file> <line> — PLManager's header for current track:
+_PLM_focus_header() {
+    local out="$PLM_HDR_TEXT"
+    sed -n "$2p" "$1" 2>/dev/null | grep -o '([^)]*)' | grep -qxF -- "$PLM_HDR_TITLE_BRACKETS" &&
+        out=$(printf '%s\n' "$out" | _PLM_flip_header_brackets "$PLM_HDR_TITLE_BRACKETS" 'TITLE = ')
+    sed -n "$(( $2 + 1 ))p" "$1" 2>/dev/null | grep -o '([^)]*)' | grep -qxF -- "$PLM_HDR_ALBUM_BRACKETS" &&
+        out=$(printf '%s\n' "$out" | _PLM_flip_header_brackets "$PLM_HDR_ALBUM_BRACKETS" 'ALBUM = ')
+    printf '%s\n' "$out"
+}
+export -f _PLM_focus_header
+
+# ---------------------------------------------------------------------------
 # _PLM_picker_binds <preview_cmd> [preview_window] — the shared control set
 #   Every screen outside PLManager (the library pickers of PlayArtist and
 #   PlayTrack) gets the same keys for the things that are not about an m3u
