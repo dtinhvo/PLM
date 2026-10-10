@@ -72,6 +72,22 @@ _PLM_ensure_playlist() {
 }
 
 # ---------------------------------------------------------------------------
+# _PLM_prune_empty_playlist <file> — delete <file> if it holds no tracks, log it.  
+#   Returns 1 when nothing was deleted.  
+#   Do not touch: merged / tmp m3us, rm.m3u sentinel.  
+#   Undo this action is manual
+# ---------------------------------------------------------------------------
+_PLM_prune_empty_playlist() {
+    local file=$1
+    [ -f "$file" ] || return 1
+    [[ "$(realpath -m -- "$file")" == "$(realpath -m -- "$PLM_PlayLists_Folder")"/* ]] || return 1
+    [ "$(basename -- "$file")" = "$PLM_TRASH_PLAYLIST" ] && return 1
+    grep -q '^[^#[:space:]]' -- "$file" && return 1
+    rm -f -- "$file" || return 1
+    echo "[empty] deleted $(basename -- "$file") — no tracks left" >> "$PLM_LOG_FILE"
+}
+
+# ---------------------------------------------------------------------------
 # _PLM_prompt_new_playlist — ask for a name, create the m3u, echo its ./path
 #   stdout is the return channel (SelectDstPlayList's output is captured by
 #   MoveEntries), so every prompt and message here goes to stderr / the tty and

@@ -14,7 +14,6 @@
 #                           TODOS
 # TODO preview a duplicate (other line of rg hits)  
 # FEAT dynamically make new list
-# BUG! a playlist with a EXTM3U 1line start (empty rest) not deleted
 # ———————————————————————— all modes ———————————————————————— 
 # BUG for ctrl - r , dont reload if esc
 # --- modals / UX

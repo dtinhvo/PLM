@@ -361,6 +361,7 @@ fi
         # spawn inner PLManager that is waited until completion
         touch "$MANAGING_FLAG"
         while [[ -f "$MANAGING_FLAG" ]] ; do
+            _PLM_prune_empty_playlist "$(cat "$PLM_ACTIVE_PLAYLIST_FILE")" && ReselectPlayingList # if did delete, reselect something else to play
             PLManager "$(Artist2Pattern)" "$(Track2Pattern)" "$(Album2Pattern)" "$(cat "$PLM_ACTIVE_PLAYLIST_FILE")" # tee here is unreliable - called from fzf is weird
         done 
         
@@ -439,24 +440,10 @@ else # if single playlist == 1 active
 fi
 realpath -m -- "$activePlaylistFile" > "$PLM_ACTIVE_PLAYLIST_FILE"
 
-# delete if playlist empty — only ever prunes a REAL playlist, never the merge
-if [ "${#selectedPlaylists[@]}" -eq 1 ]; then
-    # Count lines in the file
-    lineCount=$(wc -l < "$activePlaylistFile")
-
-    # Check if file has exactly 1 line
-        # BUG!! end of m3us, after deleting playlist PL is stuck
-        # not repeating
-        # after last track, should exit out gracefully
-    if [ "$lineCount" -eq 1 ]; then
-        # Check if the content of that line is "#EXTM3U"
-        if [ "$(cat "$activePlaylistFile" | tr -d '\r' | tr -d '\n')" == "$PLM_M3U_HEADER" ]; then
-            # Delete the file
-            rm "$activePlaylistFile"
-            echo "File $activePlaylistFile contained only '#EXTM3U' and was deleted."
-            return 0
-        fi
-    fi
+if _PLM_prune_empty_playlist "$activePlaylistFile"; then # if empty = deleted something
+    echo "$(basename -- "$activePlaylistFile") had no tracks and was deleted — pick another."
+    PLayList # reload. dont drop PL and enter irrecoverable state
+    return
 fi
 
 rm -f "$PLM_DEMO_STATE"   # a demo snapshot from an earlier session has nothing to return to
