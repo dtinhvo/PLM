@@ -396,7 +396,7 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
     - TBD: call qmmp on windows, over ssh, with sshfs
  
 ### Documentation 
-
+- [ ] scrshot with album matching with is outdated
 - [ ] representative video for operations
 - [ ] esc to reset parsing track
 
