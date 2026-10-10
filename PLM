@@ -445,8 +445,7 @@ if [ "${#selectedPlaylists[@]}" -eq 1 ]; then
     lineCount=$(wc -l < "$activePlaylistFile")
 
     # Check if file has exactly 1 line
-        # BUG!! end of m3us
-        # after deleting playlist PL is stuck
+        # BUG!! end of m3us, after deleting playlist PL is stuck
         # not repeating
         # after last track, should exit out gracefully
     if [ "$lineCount" -eq 1 ]; then
@@ -778,6 +777,8 @@ PLMTrashAllEntries() {
     local i=0
     local total=${#lines[@]}
     local header_skipped=false
+    local -a kept=()
+    local basename_file
 
     # Skip the #EXTM3U header if present
     if [[ "${lines[0]}" == "$PLM_M3U_HEADER" ]]; then
@@ -799,18 +800,16 @@ PLMTrashAllEntries() {
                 local filepath="${lines[$meta_idx]}"
                 filepath=$(echo "$filepath" | sed 's|\\|/|g' | tr -d '\r')
 
-                echo "Deleting audio file: $filepath"
+                echo "Trashing audio file: $filepath"
 
-                # Move file to trash
-                if [[ -f "$filepath" ]]; then
-                    mv "$filepath" "../$PLM_TRASH_FOLDER"
-                else
-                    echo "  Warning: file not found on disk, skipping move: $filepath"
+                # Move file to trash; if refused (name taken in .trash, or no file) → the pair stays in the playlist and gets no rm.log record (_PLM_trash_file)
+                if ! basename_file=$(_PLM_trash_file "$filepath"); then   # name inside .trash
+                    kept+=("$meta_line" "${lines[$meta_idx]}")
+                    i=$(( i + 2 ))
+                    continue
                 fi
 
-                # Log basename to trash log
-                local basename_file
-                basename_file=$(basename "$filepath")
+                # Log the trash name (basename, or N~basename) to trash log
                 echo "$basename_file" >> "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
 
                 # Log the M3U entry pair to trash log
@@ -832,16 +831,14 @@ PLMTrashAllEntries() {
             local filepath
             filepath=$(echo "$line" | sed 's|\\|/|g' | tr -d '\r')
 
-            echo "Deleting audio file (no metadata): $filepath"
+            echo "Trashing audio file (no metadata): $filepath"
 
-            if [[ -f "$filepath" ]]; then
-                mv "$filepath" "../$PLM_TRASH_FOLDER"
-            else
-                echo "  Warning: file not found on disk, skipping move: $filepath"
+            if ! basename_file=$(_PLM_trash_file "$filepath"); then
+                kept+=("$line")
+                i=$(( i + 1 ))
+                continue
             fi
 
-            local basename_file
-            basename_file=$(basename "$filepath")
             echo "$basename_file" >> "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
             echo "$line"         >> "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
 
@@ -855,9 +852,8 @@ PLMTrashAllEntries() {
     else
         > "$filesrc"
     fi
+    (( ${#kept[@]} )) && printf '%s\n' "${kept[@]}" >> "$filesrc"   # refused entries stay
 
-    echo "Done. All entries removed from $filesrc."
+    echo "Done. $(( ${#kept[@]} )) line(s) of refused entries kept in $filesrc, the rest removed."
 } 
  
-# FEAT VERY late advanced wishlist
-    # 

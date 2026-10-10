@@ -153,7 +153,7 @@ PLManager() {
         export PLM_HDR_TITLE_BRACKETS PLM_HDR_ALBUM_BRACKETS
         PLM_HDR_TITLE_BRACKETS=$(qmmp --status 2>/dev/null | grep '^TITLE = ' | grep -o '([^)]*)')
         PLM_HDR_ALBUM_BRACKETS=$(qmmp --status 2>/dev/null | grep '^ALBUM = ' | grep -o '([^)]*)')
-        local FLIP_PREVIEW='_PLM_flip_header_brackets "$PLM_HDR_ALBUM_BRACKETS" "^ *$(( {r2} + 1 )) "'
+        local FLIP_PREVIEW='_PLM_flip_header_brackets "$PLM_HDR_TITLE_BRACKETS" "^ *{r2} " | _PLM_flip_header_brackets "$PLM_HDR_ALBUM_BRACKETS" "^ *$(( {r2} + 1 )) "'
         preview_cmd=$(printf \
             'batcat --color=always {1} --highlight-line {2} | sed "s/%s/\x1b[34m&\\x1b[0m/g" | sed "s/\(([^)]*)\)/\033[1;33m&\033[0m/g" | %s || batcat --color=always {1} --highlight-line {2} | sed "s/%s/\x1b[34m&\\x1b[0m/g" | sed "s/\(([^)]*)\)/\033[1;33m&\033[0m/g" | %s' \
             "${3:-.^}" "$FLIP_PREVIEW" "${3:-.^}" "$FLIP_PREVIEW") # ? this line?
@@ -260,6 +260,8 @@ PLManager() {
                             --bind "$PLM_KEY_DELETE:execute(MoveEntries -d {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
                             --bind "$PLM_KEY_MOVE:execute(MoveEntries -m {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
                             --bind "$PLM_KEY_COPY:execute(MoveEntries -c {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
+                            --bind "$PLM_KEY_UNDO:execute-silent(PLUndo >> $PLM_LOG_FILE 2>&1)+reload($reload_cmd)" \
+                            --bind "$PLM_KEY_REDO:execute-silent(PLRedo >> $PLM_LOG_FILE 2>&1)+reload($reload_cmd)" \
                             --bind "$PLM_KEY_NEXT:execute-silent(if [ -f $PLM_DEMO_STATE ]; then _PLM_demo_restore >> $PLM_LOG_FILE 2>&1; else nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --next > /dev/null 2>&1 & echo \"[skip] next track\" >> $PLM_LOG_FILE; sleep 0.4; fi)+abort" \
                             --bind "$PLM_KEY_DEMO:execute-silent(PLDemo {} >> $PLM_LOG_FILE 2>&1)+abort" \
                             --listen "$PLM_FZF_SOCK" \

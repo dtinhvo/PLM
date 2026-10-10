@@ -76,12 +76,12 @@ while  tmux has-session -t "$PLM_tmux_session" 2>/dev/null; do
     # --- DYNAMIC PANE HEIGHT CALCULATION ---
     # ==========================================
     
-    # Reserve 5 lines for the header.
-    # Reserve 1 EXTRA line for a bottom safety buffer so the cursor never forces a scroll.
-    # HOWEVER $PLM_STATUS_HEIGHT (27) is the true height of the status block.
-    # Retune it in PLM's config block if the status block gains or loses lines.
-    pane_height=$(tmux display-message -p '#{pane_height}' | tr -d '[:space:]')
-    log_height=$(( pane_height - ${PLM_STATUS_HEIGHT:-27} )) 
+    # Log tail = this pane's rows minus the status block and its separator line.
+    # -t "$TMUX_PANE": a bare display-message reports the ACTIVE pane — the fzf
+    # one below — whose height only differs from this one by a roughly-constant
+    # ~22 rows, which is what the old empirical "27" was absorbing (off by 1-2).
+    pane_height=$(tmux display-message -t "$TMUX_PANE" -p '#{pane_height}' | tr -d '[:space:]')
+    log_height=$(( pane_height - $(wc -l <<< "$status_block") - 1 ))
 
     # --- Tail + pad the log ---
     # if (( log_height > 0 )); then
@@ -93,7 +93,8 @@ while  tmux has-session -t "$PLM_tmux_session" 2>/dev/null; do
             line_count=$(echo "$true_lines" | wc -l)
         fi
 
-        blank_count=$(( log_height - line_count ))
+        # an empty log leaves the cursor on a row of its own: one less blank line
+        blank_count=$(( log_height - line_count - (line_count == 0) ))
         padding=""
         for _ in $(seq 1 "$blank_count" 2>/dev/null); do padding+=$'\n'; done
         

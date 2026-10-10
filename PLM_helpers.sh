@@ -25,6 +25,7 @@ _sanitize_pattern() {
         s/\//.*/g
         s/;/.*/g
         s/-/.*/g
+        s/[*?{}^\$]/.*/g
     " \
     | awk -F"= " '{print $2}' \
     | sed "
@@ -520,6 +521,8 @@ _PLM_render_hints() {
 "  ${kpl}${PLM_KEY_MOVE}${o}  move to a playlist" \
 "  ${kpl}${PLM_KEY_COPY}${o}  copy to a playlist" \
 "  ${kpl}${PLM_KEY_DELETE}${o}  drop the entry (file kept)" \
+"  ${kpl}${PLM_KEY_UNDO}${o}  undo last edit" \
+"  ${kpl}${PLM_KEY_REDO}${o}  redo last undo" \
 "  ${kmp}${PLM_KEY_TAGS}${o}  edit tags" \
 "  ${kmp}${PLM_KEY_EXPLORER}${o}   show file in explorer" \
 "  ${kqm}${PLM_KEY_NEXT}${o}   next track / end the demo" \
@@ -556,7 +559,9 @@ _PLM_render_hints() {
 }
 
 # ---------------------------------------------------------------------------
-# _parse_hit — split an rg/fzf hit "path/file.m3u:42:#EXTINF:…" into globals
+# _parse_hit — split an rg/fzf hit "path/file.m3u:42:#EXTINF:…" into global vars
+#       why: bash cannot return tuples
+#       hence: must consume HIT_FILE / HIT_L1 / HIT_L2 immediately !
 #   filename and 2 lines: HIT_FILE / HIT_L1 / HIT_L2.  
 #   Returns 1 on anything malformed, so a bad hit is skipped instead of reaching sed as line address 0.
 # ---------------------------------------------------------------------------
@@ -614,7 +619,49 @@ _iter_fzf_hits() {
     done < <(sed 's/\x1b\[[0-9;]*m//g' -- "$hits_file" | sort -t: -k2,2rn) # ? what is this sort
 }
 # ---------------------------------------------------------------------------
+# _PLM_trash_file <path> — move one audio file into ../$PLM_TRASH_FOLDER and print the name it got there (= rm.log line0). .trash is flat, so x/intro.mp3 and y/intro.mp3 collide as intro.mp3: the second is stored as 2~intro.mp3 (3~, …) 
+#       instead of overwriting the first — the record's line0 carries that name and its path line the original location, which is all ResurrectEntry needs.
+#   0  the file is in .trash now: moved, or already trashed from this same path
+#      through another playlist's entry (rm.log has a record for the path whose
+#      file is still there — that record's name is reused, so both point at it)
+#   1  refuse (if the path is fake now), nothing changed: no file at <path> and none trashed from there,
+#      or the mv itself failed (permissions, read-only mount)
+#   Callers write the rm.log record only on 0, so every record has its file.
+# ---------------------------------------------------------------------------
+_PLM_trash_file() {
+    local path=$1 trash="../$PLM_TRASH_FOLDER" base=${1##*/} name i=1
+    if [ -e "$path" ]; then
+        name=$base
+        while [ -e "$trash/$name" ]; do name="$(( ++i ))~$base"; done
+        # -n: never overwrite, even if the name got taken since the loop; and -n
+        # can exit 0 on a skip (coreutils < 9.2), so check the source really left
+        mv -n -- "$path" "$trash/$name" 2>/dev/null && [ ! -e "$path" ] &&
+            { echo "$name"; return 0; }
+        echo "[trash] refused: could not move '$path' to $trash/$name" >&2
+        return 1
+    fi
+    # line0 of the last record whose path line is <path> (3-line record: two
+    # lines up; 2-line no-#EXTINF record from PLMTrashAllEntries: one line up)
+    name=$(P="$path" B="$base" awk '
+        function ok(n) { return n == ENVIRON["B"] || (n ~ /^[0-9]+~/ && substr(n, index(n, "~") + 1) == ENVIRON["B"]) }
+        { l = $0; sub(/\r$/, "", l); n = l; gsub(/\\/, "/", l)
+          if (l == ENVIRON["P"]) { if (ok(h1)) r = h1; else if (ok(h2)) r = h2 }
+          h2 = h1; h1 = n }
+        END { if (r != "") print r }' "$trash/$PLM_TRASH_LOG" 2>/dev/null)
+    if [ -n "$name" ] && [ -e "$trash/$name" ]; then
+        echo "[trash] '$base' was already trashed (as $name) through another playlist's entry" >&2
+        echo "$name"; return 0
+    fi
+    echo "[trash] refused: no file at '$path' and none trashed from there — drop the entry instead" >&2
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # TrashEntry — move audio file + playlist entry to trash
+#   Invoked by MoveEntry (-m / -a with the rm.m3u destination, i.e. inside
+#   MoveEntries' undo block) and by _PLM_journal_invert (undo of a resurrect).
+#   Refused by _PLM_trash_file → returns 1 with rm.log, the journal and the
+#   playlist untouched.
 # $1  source playlist file
 # $2  line number of the #EXTINF line
 # $3  line number of the file-path line  (= $2 + 1)
@@ -625,36 +672,38 @@ TrashEntry() {
     local line1=$2
     local line2=$3
 
-    echo "deleting audio file ..."
+    echo "trashing audio file ..."
     local FILEPATH
     FILEPATH=$(awk "NR==$line2" "$filesrc" | sed 's|\\|/|g' | tr -d '\r')
             # debug
             # echo "TrashEntry, FILEPATH" >> /tmp/qmmp_status.log
             # echo $FILEPATH >> /tmp/qmmp_status.log
             # echo "TrashEntry, PLM_TRASH_FOLDER" >> /tmp/qmmp_status.log
-            # echo $PLM_TRASH_FOLDER >> /tmp/qmmp_status.log 
+            # echo $PLM_TRASH_FOLDER >> /tmp/qmmp_status.log
             # debug
- 
-    mv "$FILEPATH" "../$PLM_TRASH_FOLDER"
 
-    local line0content
-    line0content="$(basename "$FILEPATH")"
+    local line0content   # the name the file got inside .trash (basename, or N~basename)
+    line0content=$(_PLM_trash_file "$FILEPATH") || return 1
 
     echo "$line0content"                                  >> "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
     sed -n "${line1},${line2}p" "$filesrc"                >> "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
         # formatting of the lines written should be :
-        # raw file name
+        # file name inside .trash (basename, or N~basename after a collision)
         # original M3U formatted entry
         # file path
 
 
-    echo "deleting $FILEPATH from $filesrc playlist..." # remove from original playlist
+    echo "trashing $FILEPATH from $filesrc playlist..." # remove from original playlist
         # TODO should only skip if truly is the one playing
 
+    _PLM_undo_rec "$filesrc" "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG" "$filesrc" "$line1"
     sed -i "${line1},${line2}d" "$filesrc"
     # nohup qmmp --next > /dev/null 2>&1
 }
 # mutliple-handling for TrashEntries. Takes {+f} from fzf (selection file)
+# WARN: nothing calls TrashEntries — no fzf binding, no function. Every trash
+#   goes MoveEntries → MoveEntry → TrashEntry. Bound to a key as-is, its trashes
+#   would not be undoable: it opens no _PLM_journal_open block.
 TrashEntries() {
     _trash_worker() {
         _parse_hit "$1" || return 1
@@ -689,26 +738,44 @@ RestoreEntry() {
 
 # ---------------------------------------------------------------------------
 # ResurrectEntry — undo one TrashEntry, given the line of its record in the log
-#   A record is 3 lines: basename / #EXTINF / original path.  The file goes back
-#   to its path, the 2-line m3u entry to $PLM_Ressurect_Playlist, the record out
-#   of the log.  Refuses a record whose basename doesn't match its path, so a
-#   bad line number can't move the wrong file or cut the wrong 3 log lines.
+#   Usage: ResurrectEntry <line0> [playlist]   (default $PLM_Ressurect_Playlist)
+#       A record is 3 lines: trash name / #EXTINF / original path.
+#           (trash name = basename, or N~basename after a collision in .trash)
+#           The file goes back to its og path, 
+#           the 2-line m3u entry to the playlist,
+#           the record out of the log.  
+#   Refuses a record whose trash name isn't the basename (or N~basename) of its path, so a bad line number can't move the wrong file or cut the wrong 3 log lines.
 # ---------------------------------------------------------------------------
 ResurrectEntry() {
     local log="../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG" line0=$1 name dst
+    local target=${2:-$PLM_PlayLists_Folder/$PLM_Ressurect_Playlist}
     local line1=$(( line0 + 1 )) line2=$(( line0 + 2 ))
     name=$(sed -n "${line0}p" "$log" | tr -d '\r')
     dst=$(sed -n "${line2}p" "$log" | sed 's|\\|/|g' | tr -d '\r')
-    if (( line0 < 1 )) || [ -z "$name" ] || [ "$name" != "${dst##*/}" ]; then
+    if (( line0 < 1 )) || [ -z "$name" ] ||
+       { [ "$name" != "${dst##*/}" ] && ! { [[ $name =~ ^[0-9]+~ ]] && [ "${name#*~}" = "${dst##*/}" ]; }; }; then
         echo "[ResurrectEntry] no trash record at $log:$line0" >&2
         return 1
     fi
-    mv -n -- "../$PLM_TRASH_FOLDER/$name" "$dst" || return 1
+    if [ -e "../$PLM_TRASH_FOLDER/$name" ]; then
+        # never overwrite whatever now sits at dst; -n may exit 0 on a skip, so re-check
+        mv -n -- "../$PLM_TRASH_FOLDER/$name" "$dst" 2>/dev/null &&
+            [ ! -e "../$PLM_TRASH_FOLDER/$name" ] ||
+            { echo "[ResurrectEntry] refused: $dst exists, $name stays in the trash" >&2; return 1; }
+    elif [ -e "$dst" ]; then
+        # same path trashed through two playlists = two records, one file: the
+        # other record already brought it back — restore just this entry
+        echo "[ResurrectEntry] $name is already back at $dst, restoring the entry only" >&2
+    else
+        echo "[ResurrectEntry] $name is neither in the trash nor at $dst" >&2
+        return 1
+    fi
 
-    _PLM_ensure_playlist "$PLM_PlayLists_Folder/$PLM_Ressurect_Playlist"
-    sed -n "${line1},${line2}p" "$log" >> "$PLM_PlayLists_Folder/$PLM_Ressurect_Playlist"
+    _PLM_ensure_playlist "$target"
+    sed -n "${line1},${line2}p" "$log" >> "$target"
+    _PLM_undo_rec "$log" "$target" "$log" "$line1"
     sed -i "${line0},${line2}d" "$log"
-    echo "resurrected $name -> $dst (added to $PLM_Ressurect_Playlist)"
+    echo "resurrected $name -> $dst (added to ${target##*/})"
 }
 
 # ---------------------------------------------------------------------------
@@ -774,7 +841,7 @@ MoveEntry() {
                         # output_files=$(SelectDstPlayList "$2" "Moving to playlist:")
                 # to handle premature exit: pressed Esc
                 [ -z "$output_files" ] && return
-                # deleting track takes prio
+                # trashing track takes prio
                 if IfTrashing "$output_files"; then
                     TrashEntry "$filesrc" "$line1" "$line2"
                     return   # ! break operation,
@@ -787,12 +854,14 @@ MoveEntry() {
                     if grep -Fxq -- "$(sed -n "${line1}p" "$filesrc")" "$dst" && \
                        grep -Fxq -- "$(sed -n "${line2}p" "$filesrc")" "$dst"; then
                         echo "! Track exists in $dst ! Skipping"
+                        _PLM_undo_rec "$filesrc" "" "$filesrc" "$line1"
                     else
                         echo "Writing $file_ \n to playlist: $dst"
                         sed -n "${line1},${line2}p" "$filesrc" >> "$dst"
+                        _PLM_undo_rec "$filesrc" "$dst" "$filesrc" "$line1"
                     fi
                 done <<< "$output_files"
-                echo "deleting $file_ \n from $filesrc playlist..."
+                echo "trashing $file_ \n from $filesrc playlist..."
                 sed -i "${line1},${line2}d" "$filesrc"
                 ;;
 
@@ -812,6 +881,7 @@ MoveEntry() {
                     else
                         echo "Writing $file_ \n to playlist: $dst"
                         sed -n "${line1},${line2}p" "$filesrc" >> "$dst"
+                        _PLM_undo_rec "$filesrc" "$dst" "$filesrc" "$line1"
                     fi
                 done <<< "$output_files"
                 ;;
@@ -825,7 +895,8 @@ MoveEntry() {
                 #       fi
                 # nohup qmmp --next > /dev/null 2>&1 &  
                 # fi
-                echo "deleting $file_ \n from $filesrc playlist..."
+                echo "trashing $file_ \n from $filesrc playlist..."
+                _PLM_undo_rec "$filesrc" "" "$filesrc" "$line1"
                 sed -i "${line1},${line2}d" "$filesrc"
                 ;;
 
@@ -863,10 +934,14 @@ MoveEntries() {
     # Enter resurrects it; every other key is refused
     local first
     first=$(sed 's/\x1b\[[0-9;]*m//g;q' -- "$hits_file")
+    
+    # if src is rm
     if [ "${first%%:*}" = "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG" ]; then
         [ "$flag" = -a ] || { echo "trashed track: only Enter (resurrect) applies"; return; }
         _resurrect_worker() { _parse_hit "$1" && ResurrectEntry $(( HIT_L1 - 1 )); }
-        _iter_fzf_hits _resurrect_worker "$hits_file"
+        _PLM_journal_open # make tmp file, block
+        _iter_fzf_hits _resurrect_worker "$hits_file" # pass hits to the resurrect worker
+        _PLM_journal_close "$PLM_UNDO_FILE" && : > "$PLM_REDO_FILE"
         return
     fi
 
@@ -884,8 +959,113 @@ MoveEntries() {
 
     _worker() { MoveEntry "$flag" "$1" "$output_files"; }
 
+    _PLM_journal_open
     _iter_fzf_hits _worker "$hits_file"
+    _PLM_journal_close "$PLM_UNDO_FILE" && : > "$PLM_REDO_FILE"   # a new edit voids redo
 }
+
+# ---------------------------------------------------------------------------
+# Undo / redo journals — $PLM_UNDO_FILE / $PLM_REDO_FILE, newest block on top.
+#   One block = one key press / edit action, delimited in file by a "---" line.  
+#   Example: One record = 6 lines:
+#     src:<playlist the entry left, or empty>
+#     #EXTINF…                      ┐ the m3u entry, byte for byte (CRLF kept,
+#     <path>                        ┘ so grep/awk match it exactly later)
+#     dst:<playlist it went to, or empty>
+#     #EXTINF…
+#     <path>
+#
+#   Undo puts the entry back by CONTENT, never by line number (because line number may move)
+# ---------------------------------------------------------------------------
+
+# _PLM_undo_rec <src> <dst> <file> <line1> — add one record to the opened tmp block;
+# the entry is read from <file>:<line1>, 
+#   (so call it before any sed -i delete)
+# No open block (anything outside MoveEntries / the replay) = no-op.
+_PLM_undo_rec() {
+    [ -n "$PLM_UNDO_BLOCK" ] || return 0
+    local entry
+    entry=$(awk -v a="$4" 'NR == a || NR == a + 1' "$3")   # awk: always newline-terminated
+    printf 'src:%s\n%s\ndst:%s\n%s\n' "${1#./}" "$entry" "${2#./}" "$entry" >> "$PLM_UNDO_BLOCK"
+}
+
+# make a small undo block record actions
+# to be written to log after
+_PLM_journal_open() { PLM_UNDO_BLOCK=$(mktemp /tmp/PLM_undo_block.XXXXXX); }
+
+# _PLM_journal_close <journal> 
+# prepend the open block; 1 if it recorded nothing
+_PLM_journal_close() {
+    local journal=$1 rc=1
+    if [ -s "$PLM_UNDO_BLOCK" ]; then
+        { cat -- "$PLM_UNDO_BLOCK"; echo ---; cat -- "$journal" 2>/dev/null || :; } > "$journal.tmp" &&
+            mv -- "$journal.tmp" "$journal" && rc=0
+    fi
+    rm -f -- "$PLM_UNDO_BLOCK"; PLM_UNDO_BLOCK=
+    return $rc
+}
+
+# _PLM_find_entry <file> <extinf> <path> — line of the LAST place the pair sits
+# (ENVIRON, not awk -v: -v would eat the backslashes in Windows-style paths)
+_PLM_find_entry() {
+    [ -f "$1" ] || return 1
+    A=$2 B=$3 awk 'prev == ENVIRON["A"] && $0 == ENVIRON["B"] { n = NR - 1 } { prev = $0 }
+                   END { if (!n) exit 1; print n }' "$1"
+}
+
+# _PLM_journal_invert <src> <dst> <extinf> <path> — move one entry back from dst to src (undo/redo)
+# through the same functions original action did (inferred).   
+# On failure sets _PLM_JR_ERR and returns 1.
+_PLM_journal_invert() {
+    local src=$1 dst=$2 e1=$3 e2=$4 trash="../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG" n
+    if [ -n "$dst" ]; then
+        n=$(_PLM_find_entry "$dst" "$e1" "$e2") || { _PLM_JR_ERR="entry not in $dst"; return 1; }
+        if   [ "$dst" = "$trash" ]; then ResurrectEntry $(( n - 1 )) "$src"   # trashed: file + entry back
+        elif [ "$src" = "$trash" ]; then TrashEntry "$dst" "$n" $(( n + 1 ))  # resurrected: trash again
+        elif [ -n "$src" ];         then MoveEntry -m "$dst:$n:" "$src"       # skips src if already there
+        else                             MoveEntry -d "$dst:$n:"
+        fi || { _PLM_JR_ERR="could not take it out of $dst"; return 1; }
+    else    # dropped with $PLM_KEY_DELETE: there is nothing to take it from
+        [ -f "$src" ] || { _PLM_JR_ERR="no playlist $src"; return 1; }
+        if _PLM_find_entry "$src" "$e1" "$e2" > /dev/null; then
+            echo "already in $src"
+        else
+            printf '%s\n%s\n' "$e1" "$e2" >> "$src"
+            _PLM_undo_rec "" "$src" "$src" $(( $(wc -l < "$src") - 1 ))
+            echo "restored $e2 to $src"
+        fi
+    fi
+}
+
+# _PLM_journal_replay <from> <to> <undo|redo> — reverse the top block of <from>; to top block of <to>.  
+# Failed records go to stdout (the binding appends it to $PLM_LOG_FILE) verbatim.
+_PLM_journal_replay() {
+    local from=$1 to=$2 tag="[$3]" i n
+    local -a b
+    mapfile -t b < <(sed '/^---$/q' -- "$from" 2>/dev/null)
+    n=${#b[@]}
+    if (( n == 0 )); then echo "$tag nothing to $3"; return 0; fi
+    if [ "${b[n-1]}" != "---" ] || (( (n - 1) % 6 )); then
+        echo "$tag FAILED: malformed block at the top of $from, dropped:"
+        printf '    %s\n' "${b[@]}"
+    else
+        echo "$tag $(( (n - 1) / 6 )) change(s)"
+        _PLM_journal_open
+        for (( i = n - 7; i >= 0; i -= 6 )); do
+            _PLM_journal_invert "${b[i]#src:}" "${b[i+3]#dst:}" "${b[i+1]}" "${b[i+2]}" && continue
+            echo "$tag FAILED: $_PLM_JR_ERR — record:"
+            printf '    %s\n' "${b[@]:i:6}"
+        done
+        _PLM_journal_close "$to"
+    fi
+    sed -i '1,/^---$/d' -- "$from"
+}
+
+PLUndo() { _PLM_journal_replay "$PLM_UNDO_FILE" "$PLM_REDO_FILE" undo; }
+PLRedo() { _PLM_journal_replay "$PLM_REDO_FILE" "$PLM_UNDO_FILE" redo; }
+
+# ------------------- Undo / redo journals ---------------------------------- 
+
 
 # ---------------------------------------------------------------------------
 # _PLM_concat_playlists — merge N m3u files into ONE throwaway playlist
@@ -1261,13 +1441,15 @@ export -f _PLM_concat_playlists
 export -f _parse_hit
 export -f _iter_fzf_hits
 export -f TrashEntry
-export -f TrashEntries
+export -f TrashEntries _PLM_trash_file
  
 export -f RestoreEntry
 export -f ResurrectEntry
 export -f SelectDstPlayList
 export -f MoveEntry 
 export -f MoveEntries  
+export -f _PLM_undo_rec _PLM_journal_open _PLM_journal_close _PLM_find_entry
+export -f _PLM_journal_invert _PLM_journal_replay PLUndo PLRedo
 
 # TODO ? library root selection — exported so an fzf subshell can report a dead mount
 export -f _PLM_err

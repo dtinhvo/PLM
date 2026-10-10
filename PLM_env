@@ -72,6 +72,12 @@ export PLM_KEY_PREV="alt-b"                        # back to the previous track
 export PLM_KEY_PAUSE="alt-space"                   # pause / unpause (qmmp --play-pause)
 export PLM_KEY_EXPLORER="alt-E"                    # reveal the mp3 in the file manager
 export PLM_KEY_DEMO="ctrl-t"                       # demo the entry under the cursor; again / next / track end returns
+export PLM_KEY_UNDO="ctrl-z"                       # undo the last move / copy / drop / trash / resurrect
+export PLM_KEY_REDO="ctrl-y"                       # redo what ctrl-z undid
+
+# undo / redo journals, newest block on top. Never deleted by PLM — they outlive a quit (not a reboot)
+export PLM_UNDO_FILE="/tmp/PLM_undo.log"
+export PLM_REDO_FILE="/tmp/PLM_redo.log"
 
 # PLDemo's snapshot (playlist, track, position) to return to — exists only during a demo
 export PLM_DEMO_STATE="/tmp/PLM_demo.state"
@@ -117,5 +123,4 @@ export PLM_FZF_DEFAULT_OPTS="--color=bg+:#293739,bg:#1B1D1E,border:#808080,spinn
 # tmux/monitorer layout
 export PLM_logger_height=20
 export PLM_status_height=9
-export PLM_STATUS_HEIGHT=27   # true rendered height of the monitorer's status block, subtracted from the pane height to size the log tail
  

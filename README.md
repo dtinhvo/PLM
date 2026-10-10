@@ -146,6 +146,8 @@ Opens fresh for each track, pre-queried with the playing artist + title, and lis
 | `ctrl-x` | **move**: prompts for a destination, writes the entry there, deletes it from the source |
 | `ctrl-c` | **copy**: prompts for a destination, source untouched |
 | `ctrl-d` | remove the entry from this playlist only — **the audio file is not touched** |
+| `ctrl-z` | **undo** the last edit (see [Undo / redo](#undo--redo--ctrl-z--ctrl-y)) |
+| `ctrl-y` | **redo** what `ctrl-z` undid |
 | `ctrl-e` | edit TITLE / ARTIST / ALBUM tags of the highlighted track |
 | `ctrl-r` | reselect: pick and play a different playlist |
 | `alt-n` / `alt-b` | play next / previous track (`alt-n` in demo mode: go back) |
@@ -158,6 +160,8 @@ Opens fresh for each track, pre-queried with the playing artist + title, and lis
 | `ctrl-g` | TBD |
 
 **Trashed entries.** When nothing in any playlist matches, the search falls back to the trash journal (`.trash/rm.log`), finding tracks that are trashed previously. The only action on such a hit is `Enter`: the file is moved back to its original path, its entry is appended to the resurrect playlist (`$PLM_Ressurect_Playlist`, see [Configuration](#5-configuration)), and the record is removed from `rm.log`. No other action is allowed on a hit from a trashed entry.
+
+**Same file name, different folders.** `.trash/` is flat, so trashing `a/intro.mp3` and later `b/intro.mp3` would collide. Nothing is overwritten: the second one is stored as `.trash/2~intro.mp3` (then `3~`, …), and that stored name is what its `rm.log` record carries, next to the original path. Resurrecting puts it back under its original name and path, and refuses (the file stays in the trash) if something already sits at that path. If the same file is in two playlists and you trash both entries, the file is moved once and both records point at it; resurrecting the second one only restores its entry. A trash is refused, leaving the playlist untouched, only when the file is missing and was never trashed from that path, or when the move itself fails (e.g. read-only mount).
 
 Refreshing management of a file (`Esc`) exist because managing actions for a file do not terminate when the song is finished playing (prevent incomplete management actions). Hence, if another song is played, press `Esc` to start managing the currently playing song.
 
@@ -175,7 +179,17 @@ These controls are shared for `PlayArtist` and `PlayTrack` also.
 
 Only `OK_*` playlists are offered as real destinations.
 
-### Tag editor — `ctrl-e`
+### Undo / redo — `ctrl-z` / `ctrl-y`
+
+`ctrl-z` undoes the last edit made in the manager; press it again to go further back. `ctrl-y` redoes what `ctrl-z` undid.
+
+- **What counts as one edit:** one key press. Moving five Tab-marked entries to two playlists is one edit, and one `ctrl-z` reverts all of it.
+- **What can be undone:** move, copy, drop (`ctrl-d`), `Enter`, trashing through `rm.m3u` (the audio file comes back out of `.trash/`) and resurrecting a trashed entry (the file goes back into the trash).
+- **Where entries come back:** at the **end** of the playlist they came from, not at their old position.
+- **Not covered:** tag edits (`ctrl-e`). A playlist created with `new.m3u` is not deleted by an undo — it stays, empty.
+- **History survives quitting PLM** (it is kept in `/tmp`, so a reboot clears it). Making a new edit after an undo clears the redo history.
+- **If the playlists changed in the meantime** (edited by hand, or the entry was already moved elsewhere), that undo step is skipped and reported in the monitor log as `[undo] FAILED: …`, with the entry written out in full so it can be put back by hand. The other entries of the same edit are still undone.
+
 
 > Screenshot: [Tag editor](#4-screenshots).
 
@@ -288,7 +302,8 @@ Some important variables that may be relevant for your own env
 | `PLM_MUSIC_DB` | `$PLM_Library_Folder/$PLM_MUSIC_DB_NAME` | database (SQLite) tag index for  `PlayArtist`. Derived like the above; **always inside the library**, never a cache dir under `$HOME` — it describes that tree and must travel with it |
 | `PLM_MUSIC_DB_NAME` | `music_index.db` | the index's filename within the library |
 | `PLM_logger_height` / `PLM_status_height` | `20` / `9` | tmux split sizing |
-| `PLM_STATUS_HEIGHT` | `27` | rendered height of the monitor's status block; the log tail gets `pane_height` minus this |
+| `PLM_UNDO_FILE` / `PLM_REDO_FILE` | `/tmp/PLM_undo.log` / `/tmp/PLM_redo.log` | undo / redo history. Never deleted by PLM; point them next to `rm.log` to survive a reboot |
+| `PLM_KEY_UNDO` / `PLM_KEY_REDO` | `ctrl-z` / `ctrl-y` | undo / redo keys |
 
 
 ### Hardcoded
@@ -352,7 +367,7 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
 - [ ] qmmp next issued from outside of PLM cannot terminate session (endless loop)
 - [ ] monitor still bugged in height
 - [ ] weird number coloring of trashed (and resurrected) playlists in batcat
- 
+
 ### Features
 
 #### Playing
@@ -370,7 +385,6 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
 
 
 #### Monitoring  
-- [ ] Trashing says deleting is misleading
 - [ ] Actions on files needs visual delimiter / coloring  
 
 #### Portability
@@ -379,6 +393,7 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
         - [ ] init
         - [ ] Play, I/O
 - [ ] Windows Compat
+    - TBD: call qmmp on windows, over ssh, with sshfs
  
 ### Documentation 
 
