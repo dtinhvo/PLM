@@ -116,7 +116,7 @@ ReselectPlayingList() {
     # Esc out of the picker returns nothing — leave the player alone rather than
     # handing qmmp an empty argument.
     if [ -z "$activePlaylistFile" ]; then
-        echo "[ReselectPlayingList] cancelled, keeping $(cat "$PLM_ACTIVE_PLAYLIST_FILE" 2>/dev/null)" >> "$PLM_LOG_FILE"
+        _PLM_log "$PLM_COL_KEY_QMMP" "[reselect]" "cancelled, keeping $(basename "$(cat "$PLM_ACTIVE_PLAYLIST_FILE" 2>/dev/null)")" >> "$PLM_LOG_FILE"
         return 0
     fi
 
@@ -130,7 +130,7 @@ ReselectPlayingList() {
     # Publish the new source playlist.  
     # PLM's loop re-reads this file, passes it as $4
     realpath -m -- "$activePlaylistFile" > "$PLM_ACTIVE_PLAYLIST_FILE"
-    echo "[reselect] $(basename "$activePlaylistFile")" >> "$PLM_LOG_FILE"
+    _PLM_log "$PLM_COL_KEY_QMMP" "[reselect]" "$(basename "$activePlaylistFile")" >> "$PLM_LOG_FILE"
 }
 export -f ReselectPlayingList
 
@@ -261,11 +261,11 @@ PLManager() {
                             --bind "$PLM_KEY_COPY:execute(MoveEntries -c {+f} | tee -a $PLM_LOG_FILE )+reload($reload_cmd)" \
                             --bind "$PLM_KEY_UNDO:execute-silent(PLUndo >> $PLM_LOG_FILE 2>&1)+reload($reload_cmd)" \
                             --bind "$PLM_KEY_REDO:execute-silent(PLRedo >> $PLM_LOG_FILE 2>&1)+reload($reload_cmd)" \
-                            --bind "$PLM_KEY_NEXT:execute-silent(if [ -f $PLM_DEMO_STATE ]; then _PLM_demo_restore >> $PLM_LOG_FILE 2>&1; else nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --next > /dev/null 2>&1 & echo \"[skip] next track\" >> $PLM_LOG_FILE; sleep 0.4; fi)+abort" \
+                            --bind "$PLM_KEY_NEXT:execute-silent(if [ -f $PLM_DEMO_STATE ]; then _PLM_demo_restore >> $PLM_LOG_FILE 2>&1; else nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --next > /dev/null 2>&1 & _PLM_log \"\$PLM_COL_KEY_QMMP\" '[skip]' 'next track' >> $PLM_LOG_FILE; sleep 0.4; fi)+abort" \
                             --bind "$PLM_KEY_DEMO:execute-silent(PLDemo {} >> $PLM_LOG_FILE 2>&1)+abort" \
                             --listen "$PLM_FZF_SOCK" \
-                            --bind "$PLM_KEY_PREV:execute-silent(nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --previous > /dev/null 2>&1 & echo \"[skip] previous track\" >> $PLM_LOG_FILE; sleep 0.4)+abort" \
-                            --bind "$PLM_KEY_PAUSE:execute-silent(nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --play-pause > /dev/null 2>&1 & echo \"[play] pause/unpause\" >> $PLM_LOG_FILE)" \
+                            --bind "$PLM_KEY_PREV:execute-silent(nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --previous > /dev/null 2>&1 & _PLM_log \"\$PLM_COL_KEY_QMMP\" '[skip]' 'previous track' >> $PLM_LOG_FILE; sleep 0.4)+abort" \
+                            --bind "$PLM_KEY_PAUSE:execute-silent(nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --play-pause > /dev/null 2>&1 & _PLM_log \"\$PLM_COL_KEY_QMMP\" '[play]' 'pause/unpause' >> $PLM_LOG_FILE)" \
                             --bind "$PLM_KEY_EXPLORER:execute-silent(OpenInExplorer {} >> $PLM_LOG_FILE 2>&1)" \
                             --bind "ctrl-g:become(TBD)+reload($reload_cmd)" \
                             --bind "$PLM_KEY_HINTS:transform:if [ -f \"\$PLM_HINTS_FLAG\" ]; then rm -f \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_PREVIEW_WINDOW)+refresh-preview\"; else touch \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_HINTS_WINDOW)+refresh-preview\"; fi" \

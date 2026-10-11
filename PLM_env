@@ -50,6 +50,7 @@ export PLM_COL_OFF='\x1b[0m'
 # current color = bright yellow
 export PLM_COL_DEMO='\x1b[1;93m'           # bright yellow - demo mode: PLManager preview banner + monitorer ON/OFF lines
 export PLM_COL_ACTIVE_PL='\x1b[1;93m'      # bright yellow - PLManager preview header: the active playlist name
+export PLM_COL_UNDO='\x1b[1;35m'           # magenta - undo / redo verbs in the log (own var, so it can leave PLM_COL_KEY_MP3's hue)
 
 # Key-hint colours in the alt-h sidebar.  The colour says WHAT A KEY TOUCHES —
 # the four things PLM can act on — so a key that both moves an m3u entry and

@@ -84,7 +84,7 @@ _PLM_prune_empty_playlist() {
     [ "$(basename -- "$file")" = "$PLM_TRASH_PLAYLIST" ] && return 1
     grep -q '^[^#[:space:]]' -- "$file" && return 1
     rm -f -- "$file" || return 1
-    echo "[empty] deleted $(basename -- "$file") — no tracks left" >> "$PLM_LOG_FILE"
+    _PLM_log "$PLM_COL_TRASH" "[empty]" "deleted $(basename -- "$file") — no tracks left" >> "$PLM_LOG_FILE"
 }
 
 # ---------------------------------------------------------------------------
@@ -282,6 +282,14 @@ export -f _PLM_demo_log
 #       and the watcher can fire together, and exactly one of them may restore.
 #   The track is found again by its --pl-dump label, not its index: 
 #       PLM may have sed'ed entries out of that m3u since qmmp loaded it, shifting every index.
+# _PLM_log <colour> <verb> <text…> — log line on stdout: only the verb carries the colour
+#   <colour> is one of the $PLM_COL_* (\x1b[…m text, read through %b)
+_PLM_log() {
+    local c=$1 v=$2; shift 2
+    printf '%b%s%b %s\n' "$c" "$v" "$PLM_COL_OFF" "$*"
+}
+export -f _PLM_log
+
 # ---------------------------------------------------------------------------
 _PLM_demo_restore() {
     local claim="$PLM_DEMO_STATE.$$" playlist plid label pos track n="" i
@@ -462,9 +470,9 @@ _PLM_picker_binds() {
 
     PLM_PICKER_BINDS=(
         --bind "$PLM_KEY_QUIT:execute(PLQuit)"
-        --bind "$PLM_KEY_NEXT:execute-silent($qmmp_cli --next > /dev/null 2>&1 & echo '[skip] next track' >> $PLM_LOG_FILE)"
-        --bind "$PLM_KEY_PREV:execute-silent($qmmp_cli --previous > /dev/null 2>&1 & echo '[skip] previous track' >> $PLM_LOG_FILE)"
-        --bind "$PLM_KEY_PAUSE:execute-silent($qmmp_cli --play-pause > /dev/null 2>&1 & echo '[play] pause/unpause' >> $PLM_LOG_FILE)"
+        --bind "$PLM_KEY_NEXT:execute-silent($qmmp_cli --next > /dev/null 2>&1 & _PLM_log \"\$PLM_COL_KEY_QMMP\" '[skip]' 'next track' >> $PLM_LOG_FILE)"
+        --bind "$PLM_KEY_PREV:execute-silent($qmmp_cli --previous > /dev/null 2>&1 & _PLM_log \"\$PLM_COL_KEY_QMMP\" '[skip]' 'previous track' >> $PLM_LOG_FILE)"
+        --bind "$PLM_KEY_PAUSE:execute-silent($qmmp_cli --play-pause > /dev/null 2>&1 & _PLM_log \"\$PLM_COL_KEY_QMMP\" '[play]' 'pause/unpause' >> $PLM_LOG_FILE)"
         --bind "$PLM_KEY_EXPLORER:execute-silent(OpenInExplorer {} >> $PLM_LOG_FILE 2>&1)"
         --bind "$PLM_KEY_HINTS:transform:if [ -f \"\$PLM_HINTS_FLAG\" ]; then rm -f \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window($preview_window)+refresh-preview\"; else touch \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_HINTS_WINDOW)+refresh-preview\"; fi"
         --preview "if [ -f \"\$PLM_HINTS_FLAG\" ]; then cat -- \"\$PLM_HINTS_FILE\"; else $preview_cmd; fi"
@@ -653,7 +661,7 @@ _PLM_trash_file() {
         # can exit 0 on a skip (coreutils < 9.2), so check the source really left
         mv -n -- "$path" "$trash/$name" 2>/dev/null && [ ! -e "$path" ] &&
             { echo "$name"; return 0; }
-        echo "[trash] refused: could not move '$path' to $trash/$name" >&2
+        _PLM_log "$PLM_COL_TRASH" "[trash]" "refused: could not move '$path' to $trash/$name" >&2
         return 1
     fi
     # line0 of the last record whose path line is <path> (3-line record: two
@@ -665,10 +673,10 @@ _PLM_trash_file() {
           h2 = h1; h1 = n }
         END { if (r != "") print r }' "$trash/$PLM_TRASH_LOG" 2>/dev/null)
     if [ -n "$name" ] && [ -e "$trash/$name" ]; then
-        echo "[trash] '$base' was already trashed (as $name) through another playlist's entry" >&2
+        _PLM_log "$PLM_COL_TRASH" "[trash]" "'$base' was already trashed (as $name) through another playlist's entry" >&2
         echo "$name"; return 0
     fi
-    echo "[trash] refused: no file at '$path' and none trashed from there — drop the entry instead" >&2
+    _PLM_log "$PLM_COL_TRASH" "[trash]" "refused: no file at '$path' and none trashed from there — drop the entry instead" >&2
     return 1
 }
 
@@ -688,7 +696,6 @@ TrashEntry() {
     local line1=$2
     local line2=$3
 
-    echo "trashing audio file ..."
     local FILEPATH
     FILEPATH=$(awk "NR==$line2" "$filesrc" | sed 's|\\|/|g' | tr -d '\r')
             # debug
@@ -709,7 +716,8 @@ TrashEntry() {
         # file path
 
 
-    echo "trashing $FILEPATH from $filesrc playlist..." # remove from original playlist
+    local label; label=$(sed -n "${line1}p" "$filesrc" | tr -d '\r'); label=${label#*,}
+    _PLM_log "$PLM_COL_TRASH" "[trash]" "$label  ${filesrc##*/} → $PLM_TRASH_FOLDER"   # entry leaves the playlist below
         # TODO should only skip if truly is the one playing
 
     _PLM_undo_rec "$filesrc" "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG" "$filesrc" "$line1"
@@ -770,20 +778,20 @@ ResurrectEntry() {
     dst=$(sed -n "${line2}p" "$log" | sed 's|\\|/|g' | tr -d '\r')
     if (( line0 < 1 )) || [ -z "$name" ] ||
        { [ "$name" != "${dst##*/}" ] && ! { [[ $name =~ ^[0-9]+~ ]] && [ "${name#*~}" = "${dst##*/}" ]; }; }; then
-        echo "[ResurrectEntry] no trash record at $log:$line0" >&2
+        _PLM_log "$PLM_COL_TRASH" "[resurrect]" "no trash record at $log:$line0" >&2
         return 1
     fi
     if [ -e "../$PLM_TRASH_FOLDER/$name" ]; then
         # never overwrite whatever now sits at dst; -n may exit 0 on a skip, so re-check
         mv -n -- "../$PLM_TRASH_FOLDER/$name" "$dst" 2>/dev/null &&
             [ ! -e "../$PLM_TRASH_FOLDER/$name" ] ||
-            { echo "[ResurrectEntry] refused: $dst exists, $name stays in the trash" >&2; return 1; }
+            { _PLM_log "$PLM_COL_TRASH" "[resurrect]" "refused: $dst exists, $name stays in the trash" >&2; return 1; }
     elif [ -e "$dst" ]; then
         # same path trashed through two playlists = two records, one file: the
         # other record already brought it back — restore just this entry
-        echo "[ResurrectEntry] $name is already back at $dst, restoring the entry only" >&2
+        _PLM_log "$PLM_COL_TRASH" "[resurrect]" "$name is already back at $dst, restoring the entry only" >&2
     else
-        echo "[ResurrectEntry] $name is neither in the trash nor at $dst" >&2
+        _PLM_log "$PLM_COL_TRASH" "[resurrect]" "$name is neither in the trash nor at $dst" >&2
         return 1
     fi
 
@@ -791,7 +799,7 @@ ResurrectEntry() {
     sed -n "${line1},${line2}p" "$log" >> "$target"
     _PLM_undo_rec "$log" "$target" "$log" "$line1"
     sed -i "${line0},${line2}d" "$log"
-    echo "resurrected $name -> $dst (added to ${target##*/})"
+    _PLM_log "$PLM_COL_TRASH" "[resurrect]" "$name → $dst  (entry added to ${target##*/})"
 }
 
 # ---------------------------------------------------------------------------
@@ -869,15 +877,16 @@ MoveEntry() {
                     [ -z "$dst" ] && continue
                     if grep -Fxq -- "$(sed -n "${line1}p" "$filesrc")" "$dst" && \
                        grep -Fxq -- "$(sed -n "${line2}p" "$filesrc")" "$dst"; then
-                        echo "! Track exists in $dst ! Skipping"
+                        _PLM_log "$PLM_COL_KEY_PLAYLIST" "[exists]" "$label already in ${dst##*/}, not written"
                         _PLM_undo_rec "$filesrc" "" "$filesrc" "$line1"
                     else
-                        echo "Writing $file_ \n to playlist: $dst"
+    local label=${file_#*,} src=${filesrc##*/}   # "Artist - Title" part of the #EXTINF line, for the log
+                        _PLM_log "$PLM_COL_KEY_PLAYLIST" "[copy]" "$label  $src → ${dst##*/}"
                         sed -n "${line1},${line2}p" "$filesrc" >> "$dst"
                         _PLM_undo_rec "$filesrc" "$dst" "$filesrc" "$line1"
                     fi
                 done <<< "$output_files"
-                echo "trashing $file_ \n from $filesrc playlist..."
+                _PLM_log "$PLM_COL_KEY_PLAYLIST" "[drop]" "$label  removed from $src (file kept)"
                 sed -i "${line1},${line2}d" "$filesrc"
                 ;;
 
@@ -893,9 +902,9 @@ MoveEntry() {
                     [ -z "$dst" ] && continue
                     if grep -Fxq -- "$(sed -n "${line1}p" "$filesrc")" "$dst" && \
                        grep -Fxq -- "$(sed -n "${line2}p" "$filesrc")" "$dst"; then
-                        echo "! Track exists in $dst ! Skipping"
+                        _PLM_log "$PLM_COL_KEY_PLAYLIST" "[exists]" "$label already in ${dst##*/}, not written"
                     else
-                        echo "Writing $file_ \n to playlist: $dst"
+                        _PLM_log "$PLM_COL_KEY_PLAYLIST" "[move]" "$label  $src → ${dst##*/}"
                         sed -n "${line1},${line2}p" "$filesrc" >> "$dst"
                         _PLM_undo_rec "$filesrc" "$dst" "$filesrc" "$line1"
                     fi
@@ -911,7 +920,6 @@ MoveEntry() {
                 #       fi
                 # nohup qmmp --next > /dev/null 2>&1 &  
                 # fi
-                echo "trashing $file_ \n from $filesrc playlist..."
                 _PLM_undo_rec "$filesrc" "" "$filesrc" "$line1"
                 sed -i "${line1},${line2}d" "$filesrc"
                 ;;
@@ -953,7 +961,7 @@ MoveEntries() {
     
     # if src is rm
     if [ "${first%%:*}" = "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG" ]; then
-        [ "$flag" = -a ] || { echo "trashed track: only Enter (resurrect) applies"; return; }
+        [ "$flag" = -a ] || { _PLM_log "$PLM_COL_TRASH" "[trashed]" "only Enter (resurrect) applies"; return; }
         _resurrect_worker() { _parse_hit "$1" && ResurrectEntry $(( HIT_L1 - 1 )); }
         _PLM_journal_open # make tmp file, block
         _iter_fzf_hits _resurrect_worker "$hits_file" # pass hits to the resurrect worker
@@ -1044,11 +1052,11 @@ _PLM_journal_invert() {
     else    # dropped with $PLM_KEY_DELETE: there is nothing to take it from
         [ -f "$src" ] || { _PLM_JR_ERR="no playlist $src"; return 1; }
         if _PLM_find_entry "$src" "$e1" "$e2" > /dev/null; then
-            echo "already in $src"
+            _PLM_log "$PLM_COL_UNDO" "[restore]" "already in $src"
         else
             printf '%s\n%s\n' "$e1" "$e2" >> "$src"
             _PLM_undo_rec "" "$src" "$src" $(( $(wc -l < "$src") - 1 ))
-            echo "restored $e2 to $src"
+            _PLM_log "$PLM_COL_UNDO" "[restore]" "${e1#*,}  → $src"
         fi
     fi
 }
@@ -1060,16 +1068,16 @@ _PLM_journal_replay() {
     local -a b
     mapfile -t b < <(sed '/^---$/q' -- "$from" 2>/dev/null)
     n=${#b[@]}
-    if (( n == 0 )); then echo "$tag nothing to $3"; return 0; fi
+    if (( n == 0 )); then _PLM_log "$PLM_COL_UNDO" "$tag" "nothing to $3"; return 0; fi
     if [ "${b[n-1]}" != "---" ] || (( (n - 1) % 6 )); then
-        echo "$tag FAILED: malformed block at the top of $from, dropped:"
+        _PLM_log "$PLM_COL_TRASH" "$tag FAILED" "malformed block at the top of $from, dropped:"
         printf '    %s\n' "${b[@]}"
     else
-        echo "$tag $(( (n - 1) / 6 )) change(s)"
+        _PLM_log "$PLM_COL_UNDO" "$tag" "$(( (n - 1) / 6 )) change(s)"
         _PLM_journal_open
         for (( i = n - 7; i >= 0; i -= 6 )); do
             _PLM_journal_invert "${b[i]#src:}" "${b[i+3]#dst:}" "${b[i+1]}" "${b[i+2]}" && continue
-            echo "$tag FAILED: $_PLM_JR_ERR — record:"
+            _PLM_log "$PLM_COL_TRASH" "$tag FAILED" "$_PLM_JR_ERR — record:"
             printf '    %s\n' "${b[@]:i:6}"
         done
         _PLM_journal_close "$to"
