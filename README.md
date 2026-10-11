@@ -23,10 +23,10 @@ PL                        tmux session
                   └── PLManager      one fzf screen per track
 ```
 
-![Example operation: moving playlists around, deleting duplicates](.demophotos/PLM.mp4)
+![Example operation: moving playlists around, deleting duplicates](.demophotos/PLM.gif)
 *`PL`: qmmp status and the action log on top, the track manager below.*
-![Trashing and resurrecting tracks. Files are never deleted from management, only moved to a trash folder to be manually deleted.](.demophotos/PLM_rm.mp4)
-![Demo a m3u entry different from the one being played - common if a song have multiple renditions, live versions, single release etc.](.demophotos/PLM_demo.mp4)
+![Trashing and resurrecting tracks. Files are never deleted from management, only moved to a trash folder to be manually deleted.](.demophotos/PLM_rm.gif)
+![Demo a m3u entry different from the one being played - common if a song have multiple renditions, live versions, single release etc.](.demophotos/PLM_demo.gif)
  
 ---
 
@@ -80,9 +80,9 @@ qmmp --version     # expect: QMMP version: 2.3.0
 bash script wrappers, just source it 4Head.
 
 ```bash
-git clone <this-repo> ~/shelltools/PLM
+git clone https://github.com/dtinhvo/PLM $HOME/.local/bin/PLM
 # check PLM_env:{$PLM_Library_Folder} to point to the correct library
-echo 'source ~/shelltools/PLM/PLM' >> ~/.bashrc
+echo 'source $HOME/.local/bin/PLM' >> $HOME/.bashrc
 exec bash
 ```
 
