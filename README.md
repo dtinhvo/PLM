@@ -98,7 +98,7 @@ $PLM_Library_Folder/            # audio files, any tree you like
 │   ├── rm.m3u                  # trash sentinel, auto-created if missing
 │   └── new.m3u                 # (virtual (file))
 └── .trash/                     # $PLM_TRASH_FOLDER
-    └── rm.log                  # $PLM_TRASH_LOG — what RestoreEntry reads back
+    └── rm.log                  # $PLM_TRASH_LOG — what PLMRestoreEntry reads back
 ```
 
 Fresh setup:
@@ -128,7 +128,7 @@ Relevant commands exposed to bash env, that you may actually use
 | `PlayArtist [query]` | pick one track, play everything by that artist. Require an index built by `PLMBuildIndex`  |
 | `PLMBuildIndex` | rebuild the tag index. |
 | `PLMTrashAllEntries <playlist>` | bulk-trash (move to trash folder) every entry in one m3u |
-| `RestoreEntry` | pick a file out of `.trash` and put it back  |
+| `PLMRestoreEntry` | pick a file out of `.trash` and put it back  |
 
 
 ### Track manager — `PLManager` (the main screen)
@@ -297,7 +297,7 @@ Some important variables that may be relevant for your own env
 | `PLM_PLAYLIST_SEPARATOR` | `_` | what sits between prefix and name in a real filename. E.g. `OK_Jazz` |
 | `PLM_TRASH_PLAYLIST` | `rm.m3u` | destination sentinel meaning "trash it" |
 | `PLM_NEW_PLAYLIST` | `new.m3u` | destination sentinel meaning "make a new playlist" |
-| `PLM_TRASH_LOG` | `rm.log` | trash journal `RestoreEntry` reads |
+| `PLM_TRASH_LOG` | `rm.log` | trash journal `PLMRestoreEntry` reads |
 | `PLM_Ressurect_Playlist` | `Test_99_Resurrected.m3u` | restored entries are appended here |
 | `PLM_MUSIC_DB` | `$PLM_Library_Folder/$PLM_MUSIC_DB_NAME` | database (SQLite) tag index for  `PlayArtist`. Derived like the above; **always inside the library**, never a cache dir under `$HOME` — it describes that tree and must travel with it |
 | `PLM_MUSIC_DB_NAME` | `music_index.db` | the index's filename within the library |

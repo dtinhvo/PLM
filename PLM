@@ -785,7 +785,7 @@ PLMTrashAllEntries() {
             # Make sure the path line exists
             if (( meta_idx < total )); then
                 local filepath="${lines[$meta_idx]}"
-                filepath=$(echo "$filepath" | sed 's|\\|/|g' | tr -d '\r')
+                filepath=$(printf '%s\n' "$filepath" | _PLM_norm_path)
 
                 echo "Trashing audio file: $filepath"
 
@@ -816,7 +816,7 @@ PLMTrashAllEntries() {
         else
             # Bare filepath with no preceding #EXTINF
             local filepath
-            filepath=$(echo "$line" | sed 's|\\|/|g' | tr -d '\r')
+            filepath=$(printf '%s\n' "$line" | _PLM_norm_path)
 
             echo "Trashing audio file (no metadata): $filepath"
 

@@ -10,6 +10,13 @@ _highlight_paren()
 {
      sed "s/\(([^)]*)\)/\033[1;33m&\033[0m/g"
 }
+# _PLM_norm_path — stdin filter: an m3u path line -> a usable unix path
+#   Use it on every pathREAD to avoid misses  bc of hanging whitespace at line ends
+_PLM_norm_path() {
+    sed 's|\\|/|g; s/\r//g; s/[[:space:]]*$//' # parse out all whitespace at end
+}
+export -f _PLM_norm_path
+
 _sanitize_pattern() {
     sed "
         s/'/.*/g
@@ -119,7 +126,7 @@ _PLM_prompt_new_playlist() {
 
 # ---------------------------------------------------------------------------
 # _PLM_audio_regex — "\.(mp3|wav|…)$" built from $PLM_AUDIO_EXTS, for `rg -i`
-#   One list, three consumers: PlayTrack, PlayArtist and RestoreEntry.  The
+#   One list, three consumers: PlayTrack, PlayArtist and PLMRestoreEntry.  The
 #   unquoted expansion is deliberate — it word-splits the space separated list.
 # ---------------------------------------------------------------------------
 _PLM_audio_regex() {
@@ -193,7 +200,7 @@ _PLM_entry_path() {
     local path dir
     _parse_hit "$1" || return 1
 
-    path=$(awk "NR==$HIT_L2" "$HIT_FILE" | sed 's|\\|/|g' | tr -d '\r')
+    path=$(awk "NR==$HIT_L2" "$HIT_FILE" | _PLM_norm_path)
     if [ -z "$path" ]; then
         echo "[_PLM_entry_path] no path on line $HIT_L2 of '$HIT_FILE'" >&2
         return 1
@@ -275,13 +282,6 @@ _PLM_demo_log() {
 }
 export -f _PLM_demo_log
 
-# ---------------------------------------------------------------------------
-# _PLM_demo_restore — end a demo: 
-#   reload current (was) playlist, same track, same time
-#   Claims $PLM_DEMO_STATE with an atomic mv first: $PLM_KEY_DEMO, $PLM_KEY_NEXT
-#       and the watcher can fire together, and exactly one of them may restore.
-#   The track is found again by its --pl-dump label, not its index: 
-#       PLM may have sed'ed entries out of that m3u since qmmp loaded it, shifting every index.
 # _PLM_log <colour> <verb> <text…> — log line on stdout: only the verb carries the colour
 #   <colour> is one of the $PLM_COL_* (\x1b[…m text, read through %b)
 _PLM_log() {
@@ -668,7 +668,7 @@ _PLM_trash_file() {
     # lines up; 2-line no-#EXTINF record from PLMTrashAllEntries: one line up)
     name=$(P="$path" B="$base" awk '
         function ok(n) { return n == ENVIRON["B"] || (n ~ /^[0-9]+~/ && substr(n, index(n, "~") + 1) == ENVIRON["B"]) }
-        { l = $0; sub(/\r$/, "", l); n = l; gsub(/\\/, "/", l)
+        { l = $0; gsub(/\r/, "", l); sub(/[[:space:]]+$/, "", l); n = l; gsub(/\\/, "/", l)
           if (l == ENVIRON["P"]) { if (ok(h1)) r = h1; else if (ok(h2)) r = h2 }
           h2 = h1; h1 = n }
         END { if (r != "") print r }' "$trash/$PLM_TRASH_LOG" 2>/dev/null)
@@ -697,7 +697,7 @@ TrashEntry() {
     local line2=$3
 
     local FILEPATH
-    FILEPATH=$(awk "NR==$line2" "$filesrc" | sed 's|\\|/|g' | tr -d '\r')
+    FILEPATH=$(awk "NR==$line2" "$filesrc" | _PLM_norm_path)
             # debug
             # echo "TrashEntry, FILEPATH" >> /tmp/qmmp_status.log
             # echo $FILEPATH >> /tmp/qmmp_status.log
@@ -706,7 +706,9 @@ TrashEntry() {
             # debug
 
     local line0content   # the name the file got inside .trash (basename, or N~basename)
-    line0content=$(_PLM_trash_file "$FILEPATH") || return 1
+    # stdout is the return channel, so its refusals go to stderr — which the
+    # fzf bindings' `| tee -a $PLM_LOG_FILE` never sees. Log them too.
+    line0content=$(_PLM_trash_file "$FILEPATH" 2> >(tee -a "$PLM_LOG_FILE" >&2)) || return 1
 
     echo "$line0content"                                  >> "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
     sed -n "${line1},${line2}p" "$filesrc"                >> "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG"
@@ -737,9 +739,9 @@ TrashEntries() {
     nohup qmmp --next > /dev/null 2>&1   # advance player once, after all deletions
 }
 # ---------------------------------------------------------------------------
-# RestoreEntry — interactive restore from trash (uses fzf)
+# PLMRestoreEntry — interactive restore from trash (uses fzf)
 # ---------------------------------------------------------------------------
-RestoreEntry() {
+PLMRestoreEntry() {
     # TODO! either input or fzf select
     local FILE_TO_RESTORE
     FILE_TO_RESTORE="$(_PLM_find_audio "../$PLM_TRASH_FOLDER" | fzf)"
@@ -752,7 +754,7 @@ RestoreEntry() {
 
     # Locate the entry in the trash log (line0 = filename line)
     local line0
-    line0=$(grep -Fxn -m1 -- "$FILE_TO_RESTORE" <(tr -d '\r' < "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG") | cut -d: -f1)
+    line0=$(grep -Fxn -m1 -- "$FILE_TO_RESTORE" <(_PLM_norm_path < "../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG") | cut -d: -f1)
     if [ -z "$line0" ]; then
         echo "could not find the file entry $FILE_TO_RESTORE from rm.log"
         return
@@ -774,8 +776,8 @@ ResurrectEntry() {
     local log="../$PLM_TRASH_FOLDER/$PLM_TRASH_LOG" line0=$1 name dst
     local target=${2:-$PLM_PlayLists_Folder/$PLM_Ressurect_Playlist}
     local line1=$(( line0 + 1 )) line2=$(( line0 + 2 ))
-    name=$(sed -n "${line0}p" "$log" | tr -d '\r')
-    dst=$(sed -n "${line2}p" "$log" | sed 's|\\|/|g' | tr -d '\r')
+    name=$(sed -n "${line0}p" "$log" | _PLM_norm_path)
+    dst=$(sed -n "${line2}p" "$log" | _PLM_norm_path)
     if (( line0 < 1 )) || [ -z "$name" ] ||
        { [ "$name" != "${dst##*/}" ] && ! { [[ $name =~ ^[0-9]+~ ]] && [ "${name#*~}" = "${dst##*/}" ]; }; }; then
         _PLM_log "$PLM_COL_TRASH" "[resurrect]" "no trash record at $log:$line0" >&2
@@ -940,6 +942,7 @@ MoveEntry() {
                     TrashEntry "$filesrc" "$line1" "$line2"
                     return
                 fi
+                _PLM_log "$PLM_COL_KEY_PLAYLIST" "[drop]" "$label  removed from $src (file kept)"
                 local _mode=-c
                 [[ "$(basename "$filesrc")" == $PLM_TEST_PLAYLIST_PREFIX* ]] && _mode=-m
                 MoveEntry "$_mode" "$hit" "$output_files"
@@ -1467,7 +1470,7 @@ export -f _iter_fzf_hits
 export -f TrashEntry
 export -f TrashEntries _PLM_trash_file
  
-export -f RestoreEntry
+export -f PLMRestoreEntry
 export -f ResurrectEntry
 export -f SelectDstPlayList
 export -f MoveEntry 

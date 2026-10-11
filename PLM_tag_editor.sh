@@ -4,7 +4,7 @@ filesrc=${filesrc#./};
 line=$(echo "$1" | awk -F: '{print $2}'| tr -cd '[:digit:]' ) # {2}
 line1=$(($line));
 line2=$(($line+1));
-FILEPATH=$(awk "NR==$line2" "$filesrc" | sed 's|\\|/|g' | tr -d '\r' )  
+FILEPATH=$(awk "NR==$line2" "$filesrc" | sed 's|\\|/|g; s/\r//g; s/[[:space:]]*$//' )  # = _PLM_norm_path; not sourced here  
 
 # Extract to editable format
 stty sane
