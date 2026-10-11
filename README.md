@@ -110,7 +110,7 @@ bash script wrappers, just source it 4Head.
 ```bash
 git clone https://github.com/dtinhvo/PLM $HOME/.local/bin/PLM
 # check PLM_env:{$PLM_Library_Folder} to point to the correct library
-echo 'source $HOME/.local/bin/PLM' >> $HOME/.bashrc
+echo 'source $HOME/.local/bin/PLM/PLM' >> $HOME/.bashrc
 exec bash
 ```
 
@@ -171,13 +171,23 @@ Opens fresh for each track, pre-queried with the playing artist + title, and lis
 | `Esc` | refresh management (See below) |
 | `ctrl-g` | TBD |
 
+<details>
+<summary><b>Trashing edge cases</b></summary>
+
 **Trashed entries.** When nothing in any playlist matches, the search falls back to the trash journal (`.trash/rm.log`), finding tracks that are trashed previously. The only action on such a hit is `Enter`: the file is moved back to its original path, its entry is appended to the resurrect playlist (`$PLM_Ressurect_Playlist`, see [Configuration](#5-configuration)), and the record is removed from `rm.log`. No other action is allowed on a hit from a trashed entry.
 
-**Same file name, different folders.** `.trash/` is flat, so trashing `a/intro.mp3` and later `b/intro.mp3` would collide. Nothing is overwritten: the second one is stored as `.trash/2~intro.mp3` (then `3~`, …), and that stored name is what its `rm.log` record carries, next to the original path. Resurrecting puts it back under its original name and path, and refuses (the file stays in the trash) if something already sits at that path. If the same file is in two playlists and you trash both entries, the file is moved once and both records point at it; resurrecting the second one only restores its entry. A trash is refused, leaving the playlist untouched, only when the file is missing and was never trashed from that path, or when the move itself fails (e.g. read-only mount).
+**Same file name trashed.** `.trash/` is flat, so trashing `a/intro.mp3` and later `b/intro.mp3` would collide. Trashing them both then renames them - this however does not affect undo/redo/resurrect the track , though the filename is then changed. 
+
+</details>
+
+**Undo-redo**  Rebooting clears the undo-redo log. Multiple undos supported. Valid undo-redo-able actions: move, copy, drop (`ctrl-d`), `Enter`, trashing through `rm.m3u`, resurrecting. Appending of entries from a undo/redo goes to the end of the playlist whence they came from.
+ 
 
 Refreshing management of a file (`Esc`) exist because managing actions for a file do not terminate when the song is finished playing (prevent incomplete management actions). Hence, if another song is played, press `Esc` to start managing the currently playing song.
 
-These controls are shared for `PlayArtist` and `PlayTrack` also.
+Controls are shared for `PlayArtist` and `PlayTrack` also.
+
+
 
 ### Destination picker
 
@@ -191,18 +201,9 @@ These controls are shared for `PlayArtist` and `PlayTrack` also.
 
 Only `OK_*` playlists are offered as real destinations.
 
-### Undo / redo — `ctrl-z` / `ctrl-y`
 
-`ctrl-z` undoes the last edit made in the manager; press it again to go further back. `ctrl-y` redoes what `ctrl-z` undid.
-
-- **What counts as one edit:** one key press. Moving five Tab-marked entries to two playlists is one edit, and one `ctrl-z` reverts all of it.
-- **What can be undone:** move, copy, drop (`ctrl-d`), `Enter`, trashing through `rm.m3u` (the audio file comes back out of `.trash/`) and resurrecting a trashed entry (the file goes back into the trash).
-- **Where entries come back:** at the **end** of the playlist they came from, not at their old position.
-- **Not covered:** tag edits (`ctrl-e`). A playlist created with `new.m3u` is not deleted by an undo — it stays, empty.
-- **History survives quitting PLM** (it is kept in `/tmp`, so a reboot clears it). Making a new edit after an undo clears the redo history.
-- **If the playlists changed in the meantime** (edited by hand, or the entry was already moved elsewhere), that undo step is skipped and reported in the monitor log as `[undo] FAILED: …`, with the entry written out in full so it can be put back by hand. The other entries of the same edit are still undone.
-
-
+### Tag editor `ctrl-e`
+ 
 > Screenshot: [Tag editor](#4-screenshots).
 
 Opens `$PLM_EDITOR` (`$EDITOR` on your system, or fallback to `nvim`) on three metadata entries. Save and quit and the values are written back to the mp3 with `id3v2`; the file path itself is untouched.
@@ -280,12 +281,6 @@ Listen to another entry (e.g. a duplicate) without losing your place. `ctrl-t` p
 
 </details>
 
-<details>
-<summary><b>Demo mode</b> — <code>ctrl-t</code></summary>
-
-TBD
-
-</details>
 
 ---
 
@@ -401,8 +396,9 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
         - [ ] init
         - [ ] Play, I/O
 - [ ] Windows Compat
-    - TBD: call qmmp on windows, over ssh, with sshfs
- 
+    - TBD: call qmmp on windows, over ssh, with sshfs. Where would the tmp markers/logs go? cache?
+    - optional: pre-load the mp3 in full before playing (bandwidth)
+
 ### Documentation 
 
 
