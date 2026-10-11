@@ -77,9 +77,7 @@ while  tmux has-session -t "$PLM_tmux_session" 2>/dev/null; do
     # ==========================================
     
     # Log tail = this pane's rows minus the status block and its separator line.
-    # -t "$TMUX_PANE": a bare display-message reports the ACTIVE pane — the fzf
-    # one below — whose height only differs from this one by a roughly-constant
-    # ~22 rows, which is what the old empirical "27" was absorbing (off by 1-2).
+    # -t "$TMUX_PANE": a bare display-message reports the ACTIVE pane — the fzf manager below 
     pane_height=$(tmux display-message -t "$TMUX_PANE" -p '#{pane_height}' | tr -d '[:space:]')
     log_height=$(( pane_height - $(wc -l <<< "$status_block") - 1 ))
 

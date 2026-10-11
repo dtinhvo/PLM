@@ -23,9 +23,11 @@ PL                        tmux session
                   └── PLManager      one fzf screen per track
 ```
 
-![The PL screen](.demophotos/default.png)
+![Example operation: moving playlists around, deleting duplicates](.demophotos/PLM.mp4)
 *`PL`: qmmp status and the action log on top, the track manager below.*
-
+![Trashing and resurrecting tracks. Files are never deleted from management, only moved to a trash folder to be manually deleted.](.demophotos/PLM_rm.mp4)
+![Demo a m3u entry different from the one being played - common if a song have multiple renditions, live versions, single release etc.](.demophotos/PLM_demo.mp4)
+ 
 ---
 
 ## 1. Requirements
@@ -215,11 +217,8 @@ Listen to another entry (e.g. a duplicate) without losing your place. `ctrl-t` p
 
 ![Album and parentheses highlighting](.demophotos/Highlighting_Album_paretheses.png)
 
-*Album and parentheses are highlighted, help differentiating between different versions of a song - single, live, remix, etc. *
+*Album and parentheses are highlighted, help differentiating between different versions of a song - single, live, remix, etc. Exact match with current playing track is inverted* 
 
-![Exact bracket matches](.demophotos/Highlighting_brackets_exact.png)
-
-TODO description
 
 </details>
 
