@@ -154,7 +154,7 @@ PLManager() {
         PLM_HDR_ALBUM_BRACKETS=$(qmmp --status 2>/dev/null | grep '^ALBUM = ' | grep -o '([^)]*)')
         local FLIP_PREVIEW='_PLM_flip_header_brackets "$PLM_HDR_TITLE_BRACKETS" "^ *{r2} " | _PLM_flip_header_brackets "$PLM_HDR_ALBUM_BRACKETS" "^ *$(( {r2} + 1 )) "'
         preview_cmd=$(printf \
-            'batcat --color=always {1} --highlight-line {2} | sed "/^[^m]*m *$(( {r2} + 1 ))\x1b/s/%s/\x1b[34m&\\x1b[0m/g" | sed "s/\(([^)]*)\)/\033[1;33m&\033[0m/g" | %s || batcat --color=always {1} --highlight-line {2} | sed "/^[^m]*m *$(( {r2} + 1 ))\x1b/s/%s/\x1b[34m&\\x1b[0m/g" | sed "s/\(([^)]*)\)/\033[1;33m&\033[0m/g" | %s' \
+            'batcat --color=always {1} --highlight-line {2}:+1 | sed "/^[^m]*m *$(( {r2} + 1 ))\x1b/s/%s/\x1b[34m&\\x1b[0m/g" | sed "s/\(([^)]*)\)/\033[1;33m&\033[0m/g" | %s | _PLM_keep_hl_bg || batcat --color=always {1} --highlight-line {2}:+1 | sed "/^[^m]*m *$(( {r2} + 1 ))\x1b/s/%s/\x1b[34m&\\x1b[0m/g" | sed "s/\(([^)]*)\)/\033[1;33m&\033[0m/g" | %s | _PLM_keep_hl_bg' \
             "${3:-.^}" "$FLIP_PREVIEW" "${3:-.^}" "$FLIP_PREVIEW") # ? this line?
         SRC_BASE=$(basename "$4" | _sanitize_pattern)
 

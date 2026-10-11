@@ -291,6 +291,13 @@ _PLM_log() {
 export -f _PLM_log
 
 # ---------------------------------------------------------------------------
+# _PLM_demo_restore — end a demo: 
+#   reload current (was) playlist, same track, same time
+#   Claims $PLM_DEMO_STATE with an atomic mv first: $PLM_KEY_DEMO, $PLM_KEY_NEXT
+#       and the watcher can fire together, and exactly one of them may restore.
+#   The track is found again by its --pl-dump label, not its index: 
+#       PLM may have sed'ed entries out of that m3u since qmmp loaded it, shifting every index.
+# ---------------------------------------------------------------------------
 _PLM_demo_restore() {
     local claim="$PLM_DEMO_STATE.$$" playlist plid label pos track n="" i
     mv -- "$PLM_DEMO_STATE" "$claim" 2>/dev/null || return 0
@@ -414,6 +421,20 @@ _PLM_flip_header_brackets() {
            print }'
 }
 export -f _PLM_flip_header_brackets
+
+# _PLM_keep_hl_bg — stdin filter for PLManager's preview.
+#   batcat's --highlight-line paints a background, but every ESC[0m that the
+#   blue/yellow/flip filters insert resets it, so the band stopped at the first
+#   coloured span. Re-apply the line's own background after each reset, and
+#   close it once at the very end so it cannot bleed into the next line.
+_PLM_keep_hl_bg() {
+    awk 'match($0, /\033\[48;(5;[0-9]+|2;[0-9]+;[0-9]+;[0-9]+)/) {
+             bg = "\033[" substr($0, RSTART + 2, RLENGTH - 2) "m"
+             body = substr($0, RSTART); gsub(/\033\[0m/, "&" bg, body)
+             $0 = substr($0, 1, RSTART - 1) body "\033[0m" }
+         { print }'
+}
+export -f _PLM_keep_hl_bg
 
 # _PLM_exact_first — stdin filter: 
 # lines holding a flipped bracket group
@@ -859,6 +880,7 @@ MoveEntry() {
     _parse_hit "$hit" || return 1 # share same mechanism to parse incoming hits
     local filesrc=$HIT_FILE line1=$HIT_L1 line2=$HIT_L2 file_
     file_=$(sed -n "${line1}p" "$filesrc" | tr -d '\r')
+    local label=${file_#*,} src=${filesrc##*/}   # "Artist - Title" part of the #EXTINF line, for the log
  
         case "$flag" in
             -m)
@@ -882,13 +904,11 @@ MoveEntry() {
                         _PLM_log "$PLM_COL_KEY_PLAYLIST" "[exists]" "$label already in ${dst##*/}, not written"
                         _PLM_undo_rec "$filesrc" "" "$filesrc" "$line1"
                     else
-    local label=${file_#*,} src=${filesrc##*/}   # "Artist - Title" part of the #EXTINF line, for the log
-                        _PLM_log "$PLM_COL_KEY_PLAYLIST" "[copy]" "$label  $src → ${dst##*/}"
+                        _PLM_log "$PLM_COL_KEY_PLAYLIST" "[move]" "$label  $src → ${dst##*/}"
                         sed -n "${line1},${line2}p" "$filesrc" >> "$dst"
                         _PLM_undo_rec "$filesrc" "$dst" "$filesrc" "$line1"
                     fi
                 done <<< "$output_files"
-                _PLM_log "$PLM_COL_KEY_PLAYLIST" "[drop]" "$label  removed from $src (file kept)"
                 sed -i "${line1},${line2}d" "$filesrc"
                 ;;
 
@@ -906,7 +926,7 @@ MoveEntry() {
                        grep -Fxq -- "$(sed -n "${line2}p" "$filesrc")" "$dst"; then
                         _PLM_log "$PLM_COL_KEY_PLAYLIST" "[exists]" "$label already in ${dst##*/}, not written"
                     else
-                        _PLM_log "$PLM_COL_KEY_PLAYLIST" "[move]" "$label  $src → ${dst##*/}"
+                        _PLM_log "$PLM_COL_KEY_PLAYLIST" "[copy]" "$label  $src → ${dst##*/}"
                         sed -n "${line1},${line2}p" "$filesrc" >> "$dst"
                         _PLM_undo_rec "$filesrc" "$dst" "$filesrc" "$line1"
                     fi
@@ -922,6 +942,7 @@ MoveEntry() {
                 #       fi
                 # nohup qmmp --next > /dev/null 2>&1 &  
                 # fi
+                _PLM_log "$PLM_COL_KEY_PLAYLIST" "[drop]" "$label  removed from $src (file kept)"
                 _PLM_undo_rec "$filesrc" "" "$filesrc" "$line1"
                 sed -i "${line1},${line2}d" "$filesrc"
                 ;;
@@ -942,7 +963,6 @@ MoveEntry() {
                     TrashEntry "$filesrc" "$line1" "$line2"
                     return
                 fi
-                _PLM_log "$PLM_COL_KEY_PLAYLIST" "[drop]" "$label  removed from $src (file kept)"
                 local _mode=-c
                 [[ "$(basename "$filesrc")" == $PLM_TEST_PLAYLIST_PREFIX* ]] && _mode=-m
                 MoveEntry "$_mode" "$hit" "$output_files"
