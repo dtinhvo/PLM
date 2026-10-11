@@ -23,18 +23,27 @@ PL                        tmux session
                   └── PLManager      one fzf screen per track
 ```
 
+<h4 align="center">Example operation: moving playlists around, deleting duplicates</h4>
+
 ![Example operation: moving playlists around, deleting duplicates](.demophotos/PLM.gif)
+
 *`PL`: qmmp status and the action log on top, the track manager below.*
-![Trashing and resurrecting tracks. Files are never deleted from management, only moved to a trash folder to be manually deleted.](.demophotos/PLM_rm.gif)
-![Demo a m3u entry different from the one being played - common if a song have multiple renditions, live versions, single release etc.](.demophotos/PLM_demo.gif)
- 
+
+<h4 align="center">Trashing and resurrecting tracks. Files are never deleted from management, only moved to a trash folder to be manually deleted.</h4>
+
+![Trashing and resurrecting tracks](.demophotos/PLM_rm.gif)
+
+<h4 align="center">Demo a m3u entry different from the one being played - common if a song have multiple renditions, live versions, single release etc.</h4>
+
+![Demo mode](.demophotos/PLM_demo.gif)
+
 ---
 
 ## 1. Requirements
 
 | Tool | Used for | Minimum |
 |---|---|---|
-| `qmmp` | the player itself, driven only through its CLI | **2.x** (built from source, see below) |
+| `qmmp` | the player itself, driven only through its CLI | **2.x** (built from source, see [Quick Start](#2-quick-start)) |
 | `fzf` | every interactive screen | ≥ 0.38 (`become(…)` bindings) |
 | `ripgrep` (`rg`) | searching playlists | any |
 | `bat` (`batcat`) | preview pane | any |
@@ -44,7 +53,28 @@ PL                        tmux session
 | `psmisc` | `killall qmmp` on quit | any |
 | `curl` | demo mode: redraw the manager when a demo track ends | any |
 
-### Dependencies installation
+### Library layout
+
+Point `PLM_Library_Folder` at your audio and `PLM_PlayLists_Folder` at the m3u folder
+(see [Configuration](#5-configuration)); the trash folder is a **sibling of the playlists
+folder**:
+
+```
+$PLM_Library_Folder/            # audio files, any tree you like
+├── playlists/            # $PLM_PlayLists_Folder 
+│   ├── OK_*.m3u                # stable — the only move/copy destinations
+│   ├── Test_*.m3u              # staging: moving OUT of these deletes the source entry
+│   ├── rm.m3u                  # trash sentinel, auto-created if missing
+│   └── new.m3u                 # (virtual (file))
+└── .trash/                     # $PLM_TRASH_FOLDER
+    └── rm.log                  # $PLM_TRASH_LOG — what PLMRestoreEntry reads back
+```
+
+---
+
+## 2. Quick Start
+
+### 1. Dependencies
 
 - Everything except qmmp
 
@@ -73,9 +103,7 @@ sudo ldconfig
 qmmp --version     # expect: QMMP version: 2.3.0
 ```
 
----
-
-## 2. Installation
+### 2. Install
 
 bash script wrappers, just source it 4Head.
 
@@ -86,24 +114,7 @@ echo 'source $HOME/.local/bin/PLM' >> $HOME/.bashrc
 exec bash
 ```
 
-### Library layout
-
-Point `PLM_Library_Folder` at your audio and `PLM_PlayLists_Folder` at the m3u folder
-(see [Configuration](#5-configuration)); the trash folder is a **sibling of the playlists
-folder**:
-
-```
-$PLM_Library_Folder/            # audio files, any tree you like
-├── playlists/            # $PLM_PlayLists_Folder 
-│   ├── OK_*.m3u                # stable — the only move/copy destinations
-│   ├── Test_*.m3u              # staging: moving OUT of these deletes the source entry
-│   ├── rm.m3u                  # trash sentinel, auto-created if missing
-│   └── new.m3u                 # (virtual (file))
-└── .trash/                     # $PLM_TRASH_FOLDER
-    └── rm.log                  # $PLM_TRASH_LOG — what PLMRestoreEntry reads back
-```
-
-Fresh setup:
+### 3. Fresh setup
 
 ```bash
 PLSetLibrary [path]    # point to where the library is
@@ -111,7 +122,6 @@ PLInit                 # only create files if missing
 PLMBuildIndex          # tag index, only needed for PlayArtist 
 PL                     # PlayList - start playing and managing 1 m3u or multiple m3us
 ```
-
 
 ---
 
@@ -363,18 +373,18 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
 ## 8. TODO
 
 ### Bugs
-- [ ] qmmp next issued from outside of PLM cannot terminate session (endless loop)
-- [ ] monitor still bugged in height
-- [ ] weird number coloring of trashed (and resurrected) playlists in batcat
-
+- [ ] Currently PLMReviveEntry not playing
+ 
 ### Features
 
 #### Playing
 - [ ] PLM control volume
+- [ ] PLM seek + - 
 - [ ] frequency logging, and play with frequency increasing or decreasing
+- [ ] Revive mode to peek at trash to revive, similar to demo mode
+
 #### File modification
 ##### m3u
-- [ ] Revive mode to peek at trash to revive, similar to demo mode
 - [ ] TBD reverting trashing action needs to be easier: log available from monitorer
 
 ##### mp3
@@ -384,7 +394,6 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
 
 
 #### Monitoring  
-- [ ] Actions on files needs visual delimiter / coloring  
 
 #### Portability
 - [ ] Remote storage of the library (e.g.) phone
@@ -395,9 +404,6 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
     - TBD: call qmmp on windows, over ssh, with sshfs
  
 ### Documentation 
-- [ ] scrshot with album matching with is outdated
-- [ ] representative video for operations
-- [ ] esc to reset parsing track
 
 
 ### Not Implemented
