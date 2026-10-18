@@ -14,8 +14,12 @@ done
  
 # --- Helper: render a styled progress bar string ---
 render_bar() {
-    local current_sec=$1 total_sec=$2 time_info=$3
+    local current_sec=$1 total_sec=$2 time_info=$3 vol=$4
     local bar_length=20 percent=0 filled=0 bar=""
+    local icon=🔊
+    (( vol < 67 )) && icon=🔉
+    (( vol < 34 )) && icon=🔈
+    (( vol == 0 )) && icon=🔇
 
     if [ "$total_sec" -gt 0 ]; then
         percent=$(( 100 * current_sec / total_sec ))
@@ -26,9 +30,10 @@ render_bar() {
     [ "$percent" -lt 100 ] && { bar+=""; ((filled++)); }
     for ((i=filled; i<bar_length; i++)); do bar+="░"; done
 
-    printf "%s %s\n" \
+    printf "%s %s%s\n" \
         "$(printf '\033[38;5;214m%s\033[0m' "[$bar]")" \
-        "$(printf '\033[38;5;245m%s\033[0m' "($time_info)")"
+        "$(printf '\033[38;5;245m%s\033[0m' "($time_info)")" \
+        "${vol:+  $(printf '\033[38;5;111m%s\033[0m' "$icon ${vol}%")}"
 }
 
 # --- Helper: seconds from M:SS ---
@@ -53,7 +58,8 @@ while  tmux has-session -t "$PLM_tmux_session" 2>/dev/null; do
     current_sec=$(time_to_seconds "$current_time")
     total_sec=$(time_to_seconds "$total_time")
 
-    bar_line=$(render_bar "$current_sec" "$total_sec" "$time_info")
+    volume=$(_PLM_volume_now)   # empty when neither qmmp nor a PipeWire/Pulse stream reports one
+    bar_line=$(render_bar "$current_sec" "$total_sec" "$time_info" "$volume")
 
     # --- Parse metadata fields ---
     title=$(grep '^TITLE'       "$PLM_STATUS_TMPFILE" | cut -d'=' -f2- | sed 's/^ *//'  )

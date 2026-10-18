@@ -164,6 +164,8 @@ Opens fresh for each track, pre-queried with the playing artist + title, and lis
 | `ctrl-r` | reselect: pick and play a different playlist |
 | `alt-n` / `alt-b` | play next / previous track (`alt-n` in demo mode: go back) |
 | `alt-space` | pause / unpause (`qmmp --play-pause`) |
+| `alt-=` / `alt--` | volume up / down by `PLM_VOLUME_STEP` (5 %), clamped to 0–100 (`qmmp --volume-inc`/`-dec`, or `pactl` if qmmp's mixer is dead, see [Troubleshooting](#6-troubleshooting)). Not logged: the top pane shows the level after the time, as 🔊 / 🔉 / 🔈 / 🔇 and a percentage |
+| `alt-.` / `alt-,` | seek forward / back `PLM_SEEK_STEP` (10) seconds  |
 | `ctrl-t` | **demo**: play the highlighted entry now; `ctrl-t` again goes back (see [Demo mode](#demo-mode--ctrl-t)) |
 | `alt-E` (shift-alt-e) | reveal the audio file in the graphical file manager |
 | `ctrl-q` | quit everything |
@@ -308,6 +310,9 @@ Some important variables that may be relevant for your own env
 | `PLM_logger_height` / `PLM_status_height` | `20` / `9` | tmux split sizing |
 | `PLM_UNDO_FILE` / `PLM_REDO_FILE` | `/tmp/PLM_undo.log` / `/tmp/PLM_redo.log` | undo / redo history. Never deleted by PLM; point them next to `rm.log` to survive a reboot |
 | `PLM_KEY_UNDO` / `PLM_KEY_REDO` | `ctrl-z` / `ctrl-y` | undo / redo keys |
+| `PLM_KEY_VOL_UP` / `PLM_KEY_VOL_DOWN` | `alt-=` / `alt--` | volume keys |
+| `PLM_KEY_SEEK_FWD` / `PLM_KEY_SEEK_BWD` | `alt-.` / `alt-,` | seek keys |
+| `PLM_VOLUME_STEP` / `PLM_SEEK_STEP` | `5` (%) / `10` (s) | step per key press |
 
 
 ### Hardcoded
@@ -328,6 +333,7 @@ LLM wrote this bc i only debug on my own system.
 | `ctrl-q` does nothing | a binding's function is missing from the environment. `PLQuit` was the standing example — exported inside `PLayList`'s no-argument branch, so it was dead in every picker reached *with* a playlist argument (`PlayArtist`, `PlayTrack`, `PLayList file.m3u`). It is exported at definition time now |
 | Edits to `PLM_monitorer.sh` have no effect | it is copied to `/tmp` by `PlayList_mux`; restart with `PL` |
 | An action silently fails inside fzf | a function reachable from a binding is missing its `export -f` |
+| Volume keys do nothing, `qmmp --volume-status` stays `0` | qmmp's mixer is dead with this output (ALSA on PipeWire). PLM then sets qmmp's PipeWire stream volume with `pactl` instead — install it (`pulseaudio-utils`); otherwise it falls back to `qmmp --volume-inc`, which can't help |
 | `PlayArtist` finds nothing | stale tag index — re-run `PLMBuildIndex` |
 | Playback is no longer random | `shuffle=false` in `~/.config/qmmp/qmmp.conf`. `qmmp --pl-state` to check, `qmmp --pl-shuffle-toggle` to fix — see [Modifying defaults](#7-modifying-defaults--configqmmpqmmpconf) |
 | Nothing is writable | the library is on a read-only mount. `PL`, `PLInit` and `PLSetLibrary` probe with a real file create and print the command that works for *that* filesystem — note a directory can show `drwxrwxrwx` and still be unwritable, because those bits are recorded on the volume, not permission to write to the mount |
@@ -373,8 +379,6 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
 ### Features
 
 #### Playing
-- [ ] PLM control volume
-- [ ] PLM seek + - 
 - [ ] frequency logging, and play with frequency increasing or decreasing
 - [ ] Revive mode to peek at trash to revive, similar to demo mode
 
@@ -398,6 +402,10 @@ qmmp --pl-repeat-toggle      # flip playlist repeat
 - [ ] Windows Compat
     - TBD: call qmmp on windows, over ssh, with sshfs. Where would the tmp markers/logs go? cache?
     - optional: pre-load the mp3 in full before playing (bandwidth)
+
+#### Implementation
+- [ ] abstract out key bindings. 
+    Also currently there are 2 locations for keybinds: one in PLManager and one in _PLM_picker_binds
 
 ### Documentation 
 

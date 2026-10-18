@@ -71,6 +71,12 @@ export PLM_KEY_QUIT="ctrl-q"
 export PLM_KEY_NEXT="alt-n"                        # skip to the next track in qmmp
 export PLM_KEY_PREV="alt-b"                        # back to the previous track
 export PLM_KEY_PAUSE="alt-space"                   # pause / unpause (qmmp --play-pause)
+export PLM_KEY_VOL_UP="alt-="                      # volume up
+export PLM_KEY_VOL_DOWN="alt--"                    # volume down
+export PLM_VOLUME_STEP=5                           # percent per press
+export PLM_KEY_SEEK_FWD="alt-."                    # seek forward  $PLM_SEEK_STEP seconds
+export PLM_KEY_SEEK_BWD="alt-,"                    # seek backward $PLM_SEEK_STEP seconds
+export PLM_SEEK_STEP=10
 export PLM_KEY_EXPLORER="alt-E"                    # reveal the mp3 in the file manager
 export PLM_KEY_DEMO="ctrl-t"                       # demo the entry under the cursor; again / next / track end returns
 export PLM_KEY_UNDO="ctrl-z"                       # undo the last move / copy / drop / trash / resurrect

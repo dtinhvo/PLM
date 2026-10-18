@@ -246,6 +246,7 @@ PLManager() {
 
     # ─────────────────────────────────────────────────────────────────────
 
+    _PLM_player_binds
     local hit
     hit=$(fzf --ansi --disabled  --query "$1.*$2" \
                             --header "$header_text" \
@@ -266,6 +267,7 @@ PLManager() {
                             --listen "$PLM_FZF_SOCK" \
                             --bind "$PLM_KEY_PREV:execute-silent(nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --previous > /dev/null 2>&1 & _PLM_log \"\$PLM_COL_KEY_QMMP\" '[skip]' 'previous track' >> $PLM_LOG_FILE; sleep 0.4)+abort" \
                             --bind "$PLM_KEY_PAUSE:execute-silent(nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start --play-pause > /dev/null 2>&1 & _PLM_log \"\$PLM_COL_KEY_QMMP\" '[play]' 'pause/unpause' >> $PLM_LOG_FILE)" \
+                            "${PLM_PLAYER_BINDS[@]}" \
                             --bind "$PLM_KEY_EXPLORER:execute-silent(OpenInExplorer {} >> $PLM_LOG_FILE 2>&1)" \
                             --bind "ctrl-g:become(TBD)+reload($reload_cmd)" \
                             --bind "$PLM_KEY_HINTS:transform:if [ -f \"\$PLM_HINTS_FLAG\" ]; then rm -f \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_PREVIEW_WINDOW)+refresh-preview\"; else touch \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_HINTS_WINDOW)+refresh-preview\"; fi" \

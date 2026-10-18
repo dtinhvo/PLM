@@ -290,6 +290,61 @@ _PLM_log() {
 }
 export -f _PLM_log
 
+# TODO this streaming mechanism is curious
+_PLM_qmmp_stream() { # prints "<sink-input id> <volume %>" of qmmp's stream, nothing if there is none
+    pactl list sink-inputs 2>/dev/null | awk '
+        /^Sink Input #/ { id = substr($3, 2); pct = "" }
+        /^\tVolume:/ && match($0, /[0-9]+%/) { pct = substr($0, RSTART, RLENGTH - 1) }
+        /application.process.binary = "qmmp"/ { f = 1 }
+        f && pct != "" { print id, pct; exit }'
+}
+export -f _PLM_qmmp_stream
+
+# _PLM_volume_now — current volume %, 
+# from qmmp if its mixer works, else from its PipeWire/Pulse stream
+_PLM_volume_now() {
+    local v
+    v=$(qmmp --no-start --volume-status 2>/dev/null)
+    if [ "${v:-0}" -gt 0 ] 2>/dev/null; then echo "$v"; return; fi
+    read -r _ v < <(_PLM_qmmp_stream)
+    echo "$v"
+}
+export -f _PLM_volume_now
+
+# _PLM_volume up|down — step the volume by $PLM_VOLUME_STEP %, clamped to 0-100
+#   Normally just qmmp --volume-inc/-dec.  
+#   With some outputs (ALSA on PipeWire here) qmmp's mixer is dead: --volume-status stays 0 and the commands change nothing.  
+#   Only then do we set the volume of qmmp's own stream with pactl instead (needs pactl; optional).
+#   TODO : a real volume of 0 reads as "dead" too, so it takes the pactl path (or the qmmp one if there is no pactl stream). 
+_PLM_volume() {
+    local dir=$1 id pct new q="env QT_QPA_PLATFORM=offscreen qmmp --no-start"
+    if [ "$($q --volume-status 2>/dev/null)" != 0 ]; then
+        nohup $q "--volume-${dir/up/inc}" > /dev/null 2>&1 &
+        return
+    fi
+    read -r id pct < <(_PLM_qmmp_stream)
+    if [ -z "$id" ]; then
+        nohup $q "--volume-${dir/up/inc}" > /dev/null 2>&1 &
+        return
+    fi
+    if [ "$dir" = up ]; then new=$(( pct + PLM_VOLUME_STEP )); else new=$(( pct - PLM_VOLUME_STEP )); fi
+    (( new > 100 )) && new=100
+    (( new < 0 )) && new=0
+    pactl set-sink-input-volume "$id" "${new}%"
+}
+export -f _PLM_volume
+
+# _PLM_player_binds — the volume / seek --bind args, shared by every fzf screen (fills PLM_PLAYER_BINDS)
+_PLM_player_binds() {
+    local s=$PLM_SEEK_STEP q="nohup env QT_QPA_PLATFORM=offscreen qmmp --no-start"
+    PLM_PLAYER_BINDS=(
+        --bind "$PLM_KEY_VOL_UP:execute-silent(_PLM_volume up)"
+        --bind "$PLM_KEY_VOL_DOWN:execute-silent(_PLM_volume down)"
+        --bind "$PLM_KEY_SEEK_FWD:execute-silent($q --seek-fwd $s > /dev/null 2>&1 &)"
+        --bind "$PLM_KEY_SEEK_BWD:execute-silent($q --seek-bwd $s > /dev/null 2>&1 &)"
+    )
+}
+
 # ---------------------------------------------------------------------------
 # _PLM_demo_restore — end a demo: 
 #   reload current (was) playlist, same track, same time
@@ -456,7 +511,7 @@ _PLM_focus_header() {
 }
 export -f _PLM_focus_header
 
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- TODO read
 # _PLM_picker_binds <preview_cmd> [preview_window] — the shared control set
 #   Every screen outside PLManager (the library pickers of PlayArtist and
 #   PlayTrack) gets the same keys for the things that are not about an m3u
@@ -489,6 +544,7 @@ _PLM_picker_binds() {
     local win="$preview_window"
     [ -f "$PLM_HINTS_FLAG" ] && win="$PLM_HINTS_WINDOW"
 
+    _PLM_player_binds
     PLM_PICKER_BINDS=(
         --bind "$PLM_KEY_QUIT:execute(PLQuit)"
         --bind "$PLM_KEY_NEXT:execute-silent($qmmp_cli --next > /dev/null 2>&1 & _PLM_log \"\$PLM_COL_KEY_QMMP\" '[skip]' 'next track' >> $PLM_LOG_FILE)"
@@ -496,6 +552,7 @@ _PLM_picker_binds() {
         --bind "$PLM_KEY_PAUSE:execute-silent($qmmp_cli --play-pause > /dev/null 2>&1 & _PLM_log \"\$PLM_COL_KEY_QMMP\" '[play]' 'pause/unpause' >> $PLM_LOG_FILE)"
         --bind "$PLM_KEY_EXPLORER:execute-silent(OpenInExplorer {} >> $PLM_LOG_FILE 2>&1)"
         --bind "$PLM_KEY_HINTS:transform:if [ -f \"\$PLM_HINTS_FLAG\" ]; then rm -f \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window($preview_window)+refresh-preview\"; else touch \"\$PLM_HINTS_FLAG\"; echo \"change-preview-window(\$PLM_HINTS_WINDOW)+refresh-preview\"; fi"
+        "${PLM_PLAYER_BINDS[@]}"
         --preview "if [ -f \"\$PLM_HINTS_FLAG\" ]; then cat -- \"\$PLM_HINTS_FILE\"; else $preview_cmd; fi"
         --preview-window "$win"
         --header "$PLM_KEY_HINTS: keys   $PLM_KEY_NEXT/$PLM_KEY_PREV/$PLM_KEY_PAUSE: player   $PLM_KEY_QUIT: quit"
@@ -539,6 +596,8 @@ _PLM_render_hints() {
 "  ${kqm}${PLM_KEY_NEXT}${o}   next track" \
 "  ${kqm}${PLM_KEY_PREV}${o}   previous track" \
 "  ${kqm}${PLM_KEY_PAUSE}${o} pause / unpause" \
+"  ${kqm}${PLM_KEY_VOL_UP}${o} / ${kqm}${PLM_KEY_VOL_DOWN}${o}   volume up / down" \
+"  ${kqm}${PLM_KEY_SEEK_FWD}${o} / ${kqm}${PLM_KEY_SEEK_BWD}${o}  seek ±${PLM_SEEK_STEP}s" \
 "  ${kui}${PLM_KEY_QUIT}${o}  quit PLM + qmmp" \
 "  ${kui}esc${o}     cancel the picker" \
 "  ${kui}${PLM_KEY_HINTS}${o}   close this panel" \
@@ -573,6 +632,8 @@ _PLM_render_hints() {
 "  ${kqm}${PLM_KEY_NEXT}${o}   next track / end the demo" \
 "  ${kqm}${PLM_KEY_PREV}${o}   previous track" \
 "  ${kqm}${PLM_KEY_PAUSE}${o} pause / unpause" \
+"  ${kqm}${PLM_KEY_VOL_UP}${o} / ${kqm}${PLM_KEY_VOL_DOWN}${o}   volume up / down" \
+"  ${kqm}${PLM_KEY_SEEK_FWD}${o} / ${kqm}${PLM_KEY_SEEK_BWD}${o}  seek ±${PLM_SEEK_STEP}s" \
 "  ${kqm}${PLM_KEY_DEMO}${o}  demo the entry, again:" \
 "          back to the playing track" \
 "  ${kqm}${PLM_KEY_RESELECT}${o}  reselect the playlist" \
@@ -598,7 +659,7 @@ _PLM_render_hints() {
 "  ${yel}■${o} ${PLM_TEST_PLAYLIST_PREFIX} playlists" \
 "  ${grn}■${o} ${PLM_FIXED_PLAYLIST_PREFIX} playlists" \
 "  ${yelr} ${o}/${grnr} ${o} the source playlist," \
-"          currently playing"
+"          currently playing" \
 "  $(printf %b "$PLM_COL_TRASH")■${o} trashed (only shown when nothing" \
 "          else matches) — enter resurrects"
 }
